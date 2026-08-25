@@ -1,5 +1,5 @@
 /* ───────────────── DATA MODEL ───────────────── */
-const EXPENSE_CATEGORIES = [
+const DEFAULT_CATEGORIES = [
   { name: "Spesa", icon: "🛒", color: "#7c9473" },
   { name: "Bollette", icon: "⚡", color: "#c9a13b" },
   { name: "Affitto/Mutuo", icon: "🏠", color: "#5b7a9d" },
@@ -11,12 +11,21 @@ const EXPENSE_CATEGORIES = [
   { name: "Svago", icon: "🎬", color: "#c47b3f" },
   { name: "Altro", icon: "📦", color: "#8a8a83" },
 ];
+let EXPENSE_CATEGORIES = [...DEFAULT_CATEGORIES];
+const CAT_PALETTE = ["#7c9473","#c9a13b","#5b7a9d","#b6633f","#8a7ca8","#a8506b","#4f9d9d","#d98c5f","#c47b3f","#8a8a83","#6b8e6b","#9d7b5b"];
 const INCOME_TYPES = ["Stipendio Pietro", "Stipendio Marianna", "Entrata secondaria"];
 const USERS = ["Pietro", "Marianna", "Entrambi"];
 let ACCOUNTS = ["Intesa", "BP", "Revolut", "BCC"];
 const MONTHS = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
 
-function eur(n) { return "€" + Number(n || 0).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function eur(n) {
+  n = Number(n || 0);
+  const neg = n < 0;
+  const fixed = Math.abs(n).toFixed(2);
+  let [intPart, decPart] = fixed.split(".");
+  intPart = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  return "€" + (neg ? "-" : "") + intPart + "," + decPart;
+}
 function monthKey(d) { const x = new Date(d); return `${x.getFullYear()}-${x.getMonth()}`; }
 function monthLabel(k) { const [y, m] = k.split("-"); return `${MONTHS[parseInt(m)]} ${y}`; }
 function todayISO() { return new Date().toISOString().slice(0, 10); }
@@ -64,6 +73,15 @@ function initFirebase() {
     render();
   }, (err) => showError("Errore lettura giroconti: " + err.message));
 
+  db.collection("ledger").doc("categories").onSnapshot((doc) => {
+    if (doc.exists && Array.isArray(doc.data().list) && doc.data().list.length) {
+      EXPENSE_CATEGORIES = doc.data().list;
+    } else {
+      persist("categories", { list: EXPENSE_CATEGORIES });
+    }
+    render();
+  }, (err) => showError("Errore lettura categorie: " + err.message));
+
   db.collection("ledger").doc("accounts").onSnapshot((doc) => {
     if (doc.exists && Array.isArray(doc.data().list) && doc.data().list.length) {
       ACCOUNTS = doc.data().list;
@@ -102,30 +120,90 @@ async function persist(docName, payload) {
   }
 }
 
+/* Salva insieme un elenco di movimenti e i saldi aggiornati, in un'unica operazione */
+async function persistWithBalances(docName, items, newBalances) {
+  if (!firebaseReady) { showError("Firebase non configurato: le modifiche non verranno salvate."); return; }
+  setSyncing(true);
+  try {
+    const batch = db.batch();
+    batch.set(db.collection("ledger").doc(docName), { items });
+    batch.set(db.collection("ledger").doc("balances"), newBalances);
+    await batch.commit();
+    clearError();
+  } catch (e) {
+    showError("Salvataggio non riuscito: " + e.message);
+  } finally {
+    setSyncing(false);
+  }
+}
+
 function addExpense(entry) {
+  const newBalances = { ...balances };
+  if (entry.account) newBalances[entry.account] = Number(newBalances[entry.account] || 0) - entry.amount;
   expenses = [{ ...entry, id: uid() }, ...expenses];
-  persist("expenses", { items: expenses });
+  balances = newBalances;
   render();
+  persistWithBalances("expenses", expenses, newBalances);
 }
+
 function addIncome(entry) {
+  const newBalances = { ...balances };
+  if (entry.account) newBalances[entry.account] = Number(newBalances[entry.account] || 0) + entry.amount;
   incomes = [{ ...entry, id: uid() }, ...incomes];
-  persist("incomes", { items: incomes });
+  balances = newBalances;
   render();
+  persistWithBalances("incomes", incomes, newBalances);
 }
+
 function deleteExpense(id) {
-  expenses = expenses.filter((e) => e.id !== id);
-  persist("expenses", { items: expenses });
+  const e = expenses.find((x) => x.id === id);
+  if (!e) return;
+  const newBalances = { ...balances };
+  if (e.account) newBalances[e.account] = Number(newBalances[e.account] || 0) + e.amount;
+  expenses = expenses.filter((x) => x.id !== id);
+  balances = newBalances;
   render();
+  persistWithBalances("expenses", expenses, newBalances);
 }
+
 function deleteIncome(id) {
-  incomes = incomes.filter((e) => e.id !== id);
-  persist("incomes", { items: incomes });
+  const i = incomes.find((x) => x.id === id);
+  if (!i) return;
+  const newBalances = { ...balances };
+  if (i.account) newBalances[i.account] = Number(newBalances[i.account] || 0) - i.amount;
+  incomes = incomes.filter((x) => x.id !== id);
+  balances = newBalances;
   render();
+  persistWithBalances("incomes", incomes, newBalances);
 }
 function updateBalance(acc, val) {
   balances = { ...balances, [acc]: val };
   persist("balances", balances);
   render();
+}
+
+function addCategory(name, icon) {
+  const clean = name.trim();
+  if (!clean) { toast("Inserisci un nome per la categoria"); return; }
+  if (EXPENSE_CATEGORIES.some((c) => c.name.toLowerCase() === clean.toLowerCase())) { toast("Esiste già una categoria con questo nome"); return; }
+  const color = CAT_PALETTE[EXPENSE_CATEGORIES.length % CAT_PALETTE.length];
+  EXPENSE_CATEGORIES = [...EXPENSE_CATEGORIES, { name: clean, icon: (icon || "").trim() || "🏷️", color }];
+  persist("categories", { list: EXPENSE_CATEGORIES });
+  render();
+  toast(`Categoria "${clean}" aggiunta`);
+}
+
+function removeCategory(name) {
+  const used = expenses.some((e) => e.category === name);
+  const msg = used
+    ? `"${name}" è usata in alcune spese già registrate. Eliminarla comunque? Lo storico resterà invariato, ma la categoria sparirà dalle scelte future.`
+    : `Eliminare la categoria "${name}"?`;
+  if (!confirm(msg)) return;
+  EXPENSE_CATEGORIES = EXPENSE_CATEGORIES.filter((c) => c.name !== name);
+  if (selCategory === name) selCategory = EXPENSE_CATEGORIES[0] ? EXPENSE_CATEGORIES[0].name : "";
+  persist("categories", { list: EXPENSE_CATEGORIES });
+  render();
+  toast(`Categoria "${name}" eliminata`);
 }
 
 function addAccount(name) {
@@ -231,6 +309,7 @@ document.querySelectorAll("[data-addtab]").forEach((btn) => {
 
 /* ───────────────── BUILD ADD FORM STATIC PARTS ───────────────── */
 let selCategory = "Spesa", selUser = "Entrambi", selIncomeType = INCOME_TYPES[0], selIncomeAccount = ACCOUNTS[0];
+let selExpAccount = ACCOUNTS[0];
 let selTrfFrom = ACCOUNTS[0], selTrfTo = ACCOUNTS[1];
 
 function buildAddForm() {
@@ -243,6 +322,26 @@ function buildAddForm() {
     b.innerHTML = `<span class="ic">${c.icon}</span>${c.name}`;
     b.onclick = () => { selCategory = c.name; buildAddForm(); };
     catGrid.appendChild(b);
+  });
+
+  const expAccGrid = document.getElementById("expAccountGrid");
+  expAccGrid.innerHTML = "";
+  ACCOUNTS.forEach((a) => {
+    const b = document.createElement("button");
+    b.className = a === selExpAccount ? "active" : "";
+    b.textContent = a;
+    b.onclick = () => { selExpAccount = a; buildAddForm(); };
+    expAccGrid.appendChild(b);
+  });
+
+  const catDelList = document.getElementById("catDeleteList");
+  catDelList.innerHTML = "";
+  EXPENSE_CATEGORIES.forEach((c) => {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #ddd5c4;font-size:13px";
+    row.innerHTML = `<span>${c.icon} ${c.name}</span><button style="color:#a8506b;font-size:15px;padding:0 6px">✕</button>`;
+    row.querySelector("button").onclick = () => removeCategory(c.name);
+    catDelList.appendChild(row);
   });
 
   const userRow = document.getElementById("expUserRow");
@@ -303,7 +402,7 @@ function buildAddForm() {
     wrap.innerHTML = `
       <div class="field-label">${acc}</div>
       <div class="balance-save">
-        <input class="input" style="flex:1" id="bal-${acc}" value="${balances[acc] ?? 0}">
+        <input class="input" style="flex:1" id="bal-${acc}" type="text" inputmode="decimal" pattern="[0-9.,-]*" value="${balances[acc] ?? 0}">
         <button data-acc="${acc}" class="bal-save-btn">Salva</button>
         <button data-acc="${acc}" class="bal-del-btn" style="background:#fff;color:#a8506b;border:1px solid #ddd5c4;padding:0 12px;border-radius:10px">✕</button>
       </div>`;
@@ -337,15 +436,26 @@ document.getElementById("expDate").value = todayISO();
 document.getElementById("incDate").value = todayISO();
 document.getElementById("trfDate").value = todayISO();
 
+document.getElementById("toggleCatEdit").onclick = () => {
+  const box = document.getElementById("catEditBox");
+  box.style.display = box.style.display === "none" ? "block" : "none";
+};
+
+document.getElementById("addCatBtn").onclick = () => {
+  addCategory(document.getElementById("newCatName").value, document.getElementById("newCatIcon").value);
+  document.getElementById("newCatName").value = "";
+  document.getElementById("newCatIcon").value = "";
+};
+
 document.getElementById("expSubmit").onclick = () => {
   const raw = document.getElementById("expAmount").value;
   const val = parseFloat(raw.replace(",", "."));
   if (!val || val <= 0) { toast("Inserisci un importo valido"); return; }
   addExpense({
-    amount: val, category: selCategory, user: selUser,
+    amount: val, category: selCategory, user: selUser, account: selExpAccount,
     note: document.getElementById("expNote").value, date: document.getElementById("expDate").value || todayISO(),
   });
-  toast(`Spesa di ${eur(val)} registrata`);
+  toast(`Spesa di ${eur(val)} scalata da ${selExpAccount}`);
   document.getElementById("expAmount").value = "";
   document.getElementById("expNote").value = "";
 };
@@ -425,7 +535,7 @@ function renderHistory() {
     row.className = "movement";
     const icon = histTab === "spese" ? (cat ? cat.icon : "📦") : histTab === "entrate" ? "💶" : "🔁";
     const catLabel = histTab === "spese" ? item.category : histTab === "entrate" ? item.type : `${item.from} → ${item.to}`;
-    const metaLabel = histTab === "spese" ? item.user : histTab === "entrate" ? item.account : "";
+    const metaLabel = histTab === "spese" ? (item.account ? `${item.user} · ${item.account}` : item.user) : histTab === "entrate" ? item.account : "";
     const amountClass = histTab === "spese" ? "amount-out" : histTab === "entrate" ? "amount-in" : "";
     row.innerHTML = `
       <div class="movement-left">
@@ -480,8 +590,9 @@ function renderDashboard() {
   document.getElementById("dashIn").textContent = eur(totalIn);
   document.getElementById("dashOut").textContent = eur(totalOut);
 
-  const totalLiquid = Object.values(balances).reduce((s, v) => s + Number(v || 0), 0);
-  document.getElementById("dashLiquidLabel").textContent = "Conti correnti · liquidità " + eur(totalLiquid);
+  const totalLiquid = ACCOUNTS.reduce((s, a) => s + Number(balances[a] || 0), 0);
+  document.getElementById("dashTotalLiquid").textContent = eur(totalLiquid);
+  document.getElementById("dashLiquidLabel").textContent = "Dettaglio conti";
 
   const grid = document.getElementById("accountsGrid");
   grid.innerHTML = "";

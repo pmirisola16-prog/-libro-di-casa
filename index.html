@@ -49,6 +49,8 @@ button{cursor:pointer;border:none;background:none}
 .balance-net{font-size:34px;font-weight:700;margin-top:6px}
 .balance-sub{display:flex;gap:20px;margin-top:14px;font-size:12px}
 .section-title{font-size:11px;letter-spacing:1.5px;color:#8a8578;margin-bottom:8px;text-transform:uppercase}
+.total-card{background:#fff;border:1px solid #ddd5c4;border-radius:14px;padding:16px 18px;margin-bottom:18px}
+.total-val{font-size:28px;font-weight:700;margin-top:4px;color:#2c2a26}
 .accounts-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px}
 .account-card{background:#fff;border:1px solid #ddd5c4;border-radius:12px;padding:12px 14px}
 .account-card .name{font-size:12px;color:#8a8578}
@@ -135,6 +137,10 @@ button{cursor:pointer;border:none;background:none}
         <span style="color:#d9755f">↓ uscite <span id="dashOut">€0,00</span></span>
       </div>
     </div>
+    <div class="total-card">
+      <div class="eyebrow" style="color:#8a8578">Totale sui conti</div>
+      <div class="total-val" id="dashTotalLiquid">€0,00</div>
+    </div>
     <div class="section-title" id="dashLiquidLabel">Conti correnti</div>
     <div class="accounts-grid" id="accountsGrid"></div>
     <div class="section-title">Ultimi movimenti</div>
@@ -158,6 +164,19 @@ button{cursor:pointer;border:none;background:none}
       <div class="field">
         <div class="field-label">Categoria</div>
         <div class="chip-grid" id="expCategoryGrid"></div>
+        <button id="toggleCatEdit" style="margin-top:8px;font-size:11px;color:#8a8578;background:none;padding:4px 0">⚙ gestisci categorie</button>
+        <div id="catEditBox" style="display:none;margin-top:8px">
+          <div class="balance-save" style="margin-bottom:8px">
+            <input class="input" style="flex:0 0 56px;text-align:center" id="newCatIcon" placeholder="🏷️" maxlength="4">
+            <input class="input" style="flex:1" id="newCatName" placeholder="Nuova categoria">
+            <button id="addCatBtn" style="background:#7c9473;color:#fff;padding:0 14px;border-radius:10px">+</button>
+          </div>
+          <div id="catDeleteList"></div>
+        </div>
+      </div>
+      <div class="field">
+        <div class="field-label">Pagato con</div>
+        <div class="acc-grid4" id="expAccountGrid"></div>
       </div>
       <div class="field">
         <div class="field-label">Chi paga</div>
