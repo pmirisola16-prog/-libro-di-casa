@@ -176,6 +176,57 @@ function deleteIncome(id) {
   render();
   persistWithBalances("incomes", incomes, newBalances);
 }
+function updateExpense(id, entry) {
+  const old = expenses.find((x) => x.id === id);
+  if (!old) return;
+  const newBalances = { ...balances };
+  if (old.account) newBalances[old.account] = Number(newBalances[old.account] || 0) + old.amount;
+  if (entry.account) newBalances[entry.account] = Number(newBalances[entry.account] || 0) - entry.amount;
+  expenses = expenses.map((x) => (x.id === id ? { ...entry, id } : x));
+  balances = newBalances;
+  render();
+  persistWithBalances("expenses", expenses, newBalances);
+}
+
+function updateIncome(id, entry) {
+  const old = incomes.find((x) => x.id === id);
+  if (!old) return;
+  const newBalances = { ...balances };
+  if (old.account) newBalances[old.account] = Number(newBalances[old.account] || 0) - old.amount;
+  if (entry.account) newBalances[entry.account] = Number(newBalances[entry.account] || 0) + entry.amount;
+  incomes = incomes.map((x) => (x.id === id ? { ...entry, id } : x));
+  balances = newBalances;
+  render();
+  persistWithBalances("incomes", incomes, newBalances);
+}
+
+async function updateTransfer(id, entry) {
+  const old = transfers.find((x) => x.id === id);
+  if (!old) return;
+  const newBalances = { ...balances };
+  newBalances[old.from] = Number(newBalances[old.from] || 0) + old.amount;
+  newBalances[old.to] = Number(newBalances[old.to] || 0) - old.amount;
+  newBalances[entry.from] = Number(newBalances[entry.from] || 0) - entry.amount;
+  newBalances[entry.to] = Number(newBalances[entry.to] || 0) + entry.amount;
+  const newTransfers = transfers.map((x) => (x.id === id ? { ...entry, id } : x));
+  balances = newBalances;
+  transfers = newTransfers;
+  render();
+  if (!firebaseReady) { showError("Firebase non configurato: le modifiche non verranno salvate."); return; }
+  setSyncing(true);
+  try {
+    const batch = db.batch();
+    batch.set(db.collection("ledger").doc("balances"), newBalances);
+    batch.set(db.collection("ledger").doc("transfers"), { items: newTransfers });
+    await batch.commit();
+    clearError();
+  } catch (e) {
+    showError("Salvataggio modifica non riuscito: " + e.message);
+  } finally {
+    setSyncing(false);
+  }
+}
+
 function updateBalance(acc, val) {
   balances = { ...balances, [acc]: val };
   persist("balances", balances);
@@ -271,6 +322,153 @@ function deleteTransfer(id) {
   persist("transfers", { items: transfers });
   persist("balances", balances);
   render();
+}
+
+/* ───────────────── EDIT MODAL ───────────────── */
+let editState = null; // { kind: 'spesa'|'entrata'|'giroconto', id, data }
+
+function closeEditModal() {
+  document.getElementById("editOverlay").style.display = "none";
+  editState = null;
+}
+
+function openEditModal(kind, id) {
+  let item;
+  if (kind === "spesa") item = expenses.find((e) => e.id === id);
+  else if (kind === "entrata") item = incomes.find((i) => i.id === id);
+  else item = transfers.find((t) => t.id === id);
+  if (!item) return;
+  editState = { kind, id, data: { ...item } };
+  renderEditModal();
+  document.getElementById("editOverlay").style.display = "flex";
+}
+
+function syncEditInputs() {
+  if (!editState) return;
+  const amt = document.getElementById("editAmount");
+  const note = document.getElementById("editNote");
+  const date = document.getElementById("editDate");
+  if (amt) editState.data.amount = amt.value;
+  if (note) editState.data.note = note.value;
+  if (date) editState.data.date = date.value;
+}
+
+function renderEditModal() {
+  const card = document.getElementById("editModalCard");
+  const { kind, data } = editState;
+  const title = kind === "spesa" ? "Modifica spesa" : kind === "entrata" ? "Modifica entrata" : "Modifica giroconto";
+
+  let html = `<div class="modal-title">${title}<button class="modal-close" id="editCloseBtn">✕</button></div>`;
+  html += `<div class="field"><div class="field-label">Importo (€)</div><input class="input" id="editAmount" inputmode="decimal" value="${String(data.amount).replace(".", ",")}"></div>`;
+
+  if (kind === "spesa") {
+    html += `<div class="field"><div class="field-label">Categoria</div><div class="chip-grid" id="editCategoryGrid"></div></div>`;
+    html += `<div class="field"><div class="field-label">Pagato con</div><div class="acc-grid4" id="editAccountGrid"></div></div>`;
+    html += `<div class="field"><div class="field-label">Chi paga</div><div class="row-btns" id="editUserRow"></div></div>`;
+  } else if (kind === "entrata") {
+    html += `<div class="field"><div class="field-label">Tipo di entrata</div><div class="income-list" id="editIncTypeList"></div></div>`;
+    html += `<div class="field"><div class="field-label">Accreditato su</div><div class="acc-grid4" id="editAccountGrid"></div></div>`;
+  } else {
+    html += `<div class="field"><div class="field-label">Da conto</div><div class="acc-grid4" id="editFromGrid"></div></div>`;
+    html += `<div class="field"><div class="field-label">A conto</div><div class="acc-grid4" id="editToGrid"></div></div>`;
+  }
+
+  html += `<div class="field"><div class="field-label">Nota (opzionale)</div><input class="input" id="editNote" value="${(data.note || "").replace(/"/g, "&quot;")}"></div>`;
+  html += `<div class="field"><div class="field-label">Data</div><input class="input" type="date" id="editDate" value="${data.date}"></div>`;
+  html += `<button class="submit-btn" style="background:#2c2a26" id="editSaveBtn">Salva modifiche</button>`;
+  html += `<button class="delete-link-btn" id="editDeleteBtn">Elimina movimento</button>`;
+
+  card.innerHTML = html;
+  document.getElementById("editCloseBtn").onclick = closeEditModal;
+
+  if (kind === "spesa") {
+    const catGrid = document.getElementById("editCategoryGrid");
+    EXPENSE_CATEGORIES.forEach((c) => {
+      const b = document.createElement("button");
+      b.className = "chip" + (c.name === data.category ? " active" : "");
+      if (c.name === data.category) { b.style.background = c.color; b.style.color = "#fff"; b.style.borderColor = c.color; }
+      b.innerHTML = `<span class="ic">${c.icon}</span>${c.name}`;
+      b.onclick = () => { syncEditInputs(); editState.data.category = c.name; renderEditModal(); };
+      catGrid.appendChild(b);
+    });
+    const accGrid = document.getElementById("editAccountGrid");
+    ACCOUNTS.forEach((a) => {
+      const b = document.createElement("button");
+      b.className = a === data.account ? "active" : "";
+      b.textContent = a;
+      b.onclick = () => { syncEditInputs(); editState.data.account = a; renderEditModal(); };
+      accGrid.appendChild(b);
+    });
+    const userRow = document.getElementById("editUserRow");
+    USERS.forEach((u) => {
+      const b = document.createElement("button");
+      b.className = u === data.user ? "active" : "";
+      b.textContent = u;
+      b.onclick = () => { syncEditInputs(); editState.data.user = u; renderEditModal(); };
+      userRow.appendChild(b);
+    });
+  } else if (kind === "entrata") {
+    const incList = document.getElementById("editIncTypeList");
+    INCOME_TYPES.forEach((t) => {
+      const b = document.createElement("button");
+      b.className = t === data.type ? "active" : "";
+      b.textContent = t;
+      b.onclick = () => { syncEditInputs(); editState.data.type = t; renderEditModal(); };
+      incList.appendChild(b);
+    });
+    const accGrid = document.getElementById("editAccountGrid");
+    ACCOUNTS.forEach((a) => {
+      const b = document.createElement("button");
+      b.className = a === data.account ? "active" : "";
+      b.textContent = a;
+      b.onclick = () => { syncEditInputs(); editState.data.account = a; renderEditModal(); };
+      accGrid.appendChild(b);
+    });
+  } else {
+    const fromGrid = document.getElementById("editFromGrid");
+    ACCOUNTS.forEach((a) => {
+      const b = document.createElement("button");
+      b.className = a === data.from ? "active" : "";
+      b.textContent = a;
+      b.onclick = () => { syncEditInputs(); editState.data.from = a; renderEditModal(); };
+      fromGrid.appendChild(b);
+    });
+    const toGrid = document.getElementById("editToGrid");
+    ACCOUNTS.forEach((a) => {
+      const b = document.createElement("button");
+      b.className = a === data.to ? "active" : "";
+      b.textContent = a;
+      b.onclick = () => { syncEditInputs(); editState.data.to = a; renderEditModal(); };
+      toGrid.appendChild(b);
+    });
+  }
+
+  document.getElementById("editSaveBtn").onclick = () => {
+    syncEditInputs();
+    const val = parseFloat(String(editState.data.amount).replace(",", "."));
+    if (!val || val <= 0) { toast("Inserisci un importo valido"); return; }
+    const date = editState.data.date || todayISO();
+    const note = editState.data.note || "";
+    if (editState.kind === "spesa") {
+      updateExpense(editState.id, { amount: val, category: editState.data.category, user: editState.data.user, account: editState.data.account, note, date });
+    } else if (editState.kind === "entrata") {
+      updateIncome(editState.id, { amount: val, type: editState.data.type, account: editState.data.account, note, date });
+    } else {
+      if (editState.data.from === editState.data.to) { toast("Scegli due conti diversi"); return; }
+      updateTransfer(editState.id, { amount: val, from: editState.data.from, to: editState.data.to, note, date });
+    }
+    toast("Movimento aggiornato");
+    closeEditModal();
+  };
+
+  document.getElementById("editDeleteBtn").onclick = () => {
+    const kindNow = editState.kind, idNow = editState.id;
+    closeEditModal();
+    if (kindNow === "spesa") deleteExpense(idNow);
+    else if (kindNow === "entrata") deleteIncome(idNow);
+    else deleteTransfer(idNow);
+    toast("Movimento eliminato");
+  };
 }
 
 /* ───────────────── TOAST ───────────────── */
@@ -432,6 +630,10 @@ function buildAddForm() {
   };
 }
 
+document.getElementById("editOverlay").addEventListener("click", (ev) => {
+  if (ev.target.id === "editOverlay") closeEditModal();
+});
+
 document.getElementById("expDate").value = todayISO();
 document.getElementById("incDate").value = todayISO();
 document.getElementById("trfDate").value = todayISO();
@@ -549,12 +751,17 @@ function renderHistory() {
         <div class="mono ${amountClass}" style="${histTab === "giroconti" ? "color:#5b7a9d;font-weight:600" : ""}">${eur(item.amount)}</div>
         <button class="del-btn" data-id="${item.id}">✕</button>
       </div>`;
-    row.querySelector(".del-btn").onclick = () => {
+    row.querySelector(".del-btn").onclick = (ev) => {
+      ev.stopPropagation();
       if (histTab === "spese") deleteExpense(item.id);
       else if (histTab === "entrate") deleteIncome(item.id);
       else deleteTransfer(item.id);
       toast("Movimento eliminato");
       renderHistory();
+    };
+    row.onclick = () => {
+      const kind = histTab === "spese" ? "spesa" : histTab === "entrate" ? "entrata" : "giroconto";
+      openEditModal(kind, item.id);
     };
     listEl.appendChild(row);
   });
@@ -631,6 +838,10 @@ function renderDashboard() {
         </div>
       </div>
       ${amountHtml}`;
+    row.onclick = () => {
+      const kind = r.isTransfer ? "giroconto" : r.isIncome ? "entrata" : "spesa";
+      openEditModal(kind, r.id);
+    };
     recentEl.appendChild(row);
   });
 }
