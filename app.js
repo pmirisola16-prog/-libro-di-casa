@@ -13,7 +13,7 @@ const EXPENSE_CATEGORIES = [
 ];
 const INCOME_TYPES = ["Stipendio Pietro", "Stipendio Marianna", "Entrata secondaria"];
 const USERS = ["Pietro", "Marianna", "Entrambi"];
-const ACCOUNTS = ["Intesa", "BP", "Revolut", "BCC"];
+let ACCOUNTS = ["Intesa", "BP", "Revolut", "BCC"];
 const MONTHS = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
 
 function eur(n) { return "€" + Number(n || 0).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
@@ -63,6 +63,15 @@ function initFirebase() {
     transfers = doc.exists ? (doc.data().items || []) : [];
     render();
   }, (err) => showError("Errore lettura giroconti: " + err.message));
+
+  db.collection("ledger").doc("accounts").onSnapshot((doc) => {
+    if (doc.exists && Array.isArray(doc.data().list) && doc.data().list.length) {
+      ACCOUNTS = doc.data().list;
+    } else {
+      persist("accounts", { list: ACCOUNTS });
+    }
+    render();
+  }, (err) => showError("Errore lettura conti: " + err.message));
 }
 
 function setSyncing(v) {
@@ -117,6 +126,34 @@ function updateBalance(acc, val) {
   balances = { ...balances, [acc]: val };
   persist("balances", balances);
   render();
+}
+
+function addAccount(name) {
+  const clean = name.trim();
+  if (!clean) { toast("Inserisci un nome per il conto"); return; }
+  if (ACCOUNTS.some((a) => a.toLowerCase() === clean.toLowerCase())) { toast("Esiste già un conto con questo nome"); return; }
+  ACCOUNTS = [...ACCOUNTS, clean];
+  balances = { ...balances, [clean]: 0 };
+  persist("accounts", { list: ACCOUNTS });
+  persist("balances", balances);
+  render();
+  toast(`Conto "${clean}" aggiunto`);
+}
+
+function removeAccount(name) {
+  const hasMovements = incomes.some((i) => i.account === name) || transfers.some((t) => t.from === name || t.to === name);
+  const balance = Number(balances[name] || 0);
+  if (hasMovements || balance !== 0) {
+    if (!confirm(`"${name}" ha un saldo di ${eur(balance)} e/o movimenti collegati. Eliminarlo comunque? Lo storico resterà ma il conto sparirà dalle scelte future.`)) return;
+  } else if (!confirm(`Eliminare il conto "${name}"?`)) return;
+  ACCOUNTS = ACCOUNTS.filter((a) => a !== name);
+  const newBalances = { ...balances };
+  delete newBalances[name];
+  balances = newBalances;
+  persist("accounts", { list: ACCOUNTS });
+  persist("balances", balances);
+  render();
+  toast(`Conto "${name}" eliminato`);
 }
 
 async function addTransfer(entry) {
@@ -267,15 +304,33 @@ function buildAddForm() {
       <div class="field-label">${acc}</div>
       <div class="balance-save">
         <input class="input" style="flex:1" id="bal-${acc}" value="${balances[acc] ?? 0}">
-        <button data-acc="${acc}">Salva</button>
+        <button data-acc="${acc}" class="bal-save-btn">Salva</button>
+        <button data-acc="${acc}" class="bal-del-btn" style="background:#fff;color:#a8506b;border:1px solid #ddd5c4;padding:0 12px;border-radius:10px">✕</button>
       </div>`;
     balForm.appendChild(wrap);
-    wrap.querySelector("button").onclick = () => {
+    wrap.querySelector(".bal-save-btn").onclick = () => {
       const val = parseFloat(document.getElementById(`bal-${acc}`).value.replace(",", ".")) || 0;
       updateBalance(acc, val);
       toast(`Saldo ${acc} aggiornato`);
     };
+    wrap.querySelector(".bal-del-btn").onclick = () => removeAccount(acc);
   });
+
+  const addAccWrap = document.createElement("div");
+  addAccWrap.className = "field";
+  addAccWrap.style.marginTop = "10px";
+  addAccWrap.innerHTML = `
+    <div class="field-label">Nuovo conto</div>
+    <div class="balance-save">
+      <input class="input" style="flex:1" id="newAccName" placeholder="es. Cassa, PayPal…">
+      <button id="addAccBtn" style="background:#7c9473;color:#fff;padding:0 16px;border-radius:10px">Aggiungi</button>
+    </div>`;
+  balForm.appendChild(addAccWrap);
+  addAccWrap.querySelector("#addAccBtn").onclick = () => {
+    const val = document.getElementById("newAccName").value;
+    addAccount(val);
+    document.getElementById("newAccName").value = "";
+  };
 }
 
 document.getElementById("expDate").value = todayISO();
