@@ -25,6 +25,7 @@ function uid() { return Date.now().toString(36) + Math.random().toString(36).sli
 /* ───────────────── STATE ───────────────── */
 let expenses = [];
 let incomes = [];
+let transfers = [];
 let balances = { Intesa: 0, BP: 0, Revolut: 0, BCC: 0 };
 let db = null;
 let firebaseReady = false;
@@ -57,6 +58,11 @@ function initFirebase() {
     document.getElementById("loadingBox").style.display = "none";
     document.getElementById("page-dashboard").classList.add("active");
   }, (err) => showError("Errore lettura conti: " + err.message));
+
+  db.collection("ledger").doc("transfers").onSnapshot((doc) => {
+    transfers = doc.exists ? (doc.data().items || []) : [];
+    render();
+  }, (err) => showError("Errore lettura giroconti: " + err.message));
 }
 
 function setSyncing(v) {
@@ -113,6 +119,45 @@ function updateBalance(acc, val) {
   render();
 }
 
+async function addTransfer(entry) {
+  const newBalances = {
+    ...balances,
+    [entry.from]: Number(balances[entry.from] || 0) - entry.amount,
+    [entry.to]: Number(balances[entry.to] || 0) + entry.amount,
+  };
+  const newTransfers = [{ ...entry, id: uid() }, ...transfers];
+  balances = newBalances;
+  transfers = newTransfers;
+  render();
+  if (!firebaseReady) { showError("Firebase non configurato: le modifiche non verranno salvate."); return; }
+  setSyncing(true);
+  try {
+    const batch = db.batch();
+    batch.set(db.collection("ledger").doc("balances"), newBalances);
+    batch.set(db.collection("ledger").doc("transfers"), { items: newTransfers });
+    await batch.commit();
+    clearError();
+  } catch (e) {
+    showError("Salvataggio giroconto non riuscito: " + e.message);
+  } finally {
+    setSyncing(false);
+  }
+}
+
+function deleteTransfer(id) {
+  const t = transfers.find((x) => x.id === id);
+  if (!t) return;
+  transfers = transfers.filter((x) => x.id !== id);
+  balances = {
+    ...balances,
+    [t.from]: Number(balances[t.from] || 0) + t.amount,
+    [t.to]: Number(balances[t.to] || 0) - t.amount,
+  };
+  persist("transfers", { items: transfers });
+  persist("balances", balances);
+  render();
+}
+
 /* ───────────────── TOAST ───────────────── */
 let toastTimer = null;
 function toast(msg) {
@@ -142,12 +187,14 @@ document.querySelectorAll("[data-addtab]").forEach((btn) => {
     btn.classList.add("active");
     document.getElementById("add-spesa").style.display = btn.dataset.addtab === "spesa" ? "block" : "none";
     document.getElementById("add-entrata").style.display = btn.dataset.addtab === "entrata" ? "block" : "none";
+    document.getElementById("add-giroconto").style.display = btn.dataset.addtab === "giroconto" ? "block" : "none";
     document.getElementById("add-conto").style.display = btn.dataset.addtab === "conto" ? "block" : "none";
   });
 });
 
 /* ───────────────── BUILD ADD FORM STATIC PARTS ───────────────── */
 let selCategory = "Spesa", selUser = "Entrambi", selIncomeType = INCOME_TYPES[0], selIncomeAccount = ACCOUNTS[0];
+let selTrfFrom = ACCOUNTS[0], selTrfTo = ACCOUNTS[1];
 
 function buildAddForm() {
   const catGrid = document.getElementById("expCategoryGrid");
@@ -191,6 +238,26 @@ function buildAddForm() {
     incAccGrid.appendChild(b);
   });
 
+  const trfFromGrid = document.getElementById("trfFromGrid");
+  trfFromGrid.innerHTML = "";
+  ACCOUNTS.forEach((a) => {
+    const b = document.createElement("button");
+    b.className = a === selTrfFrom ? "active" : "";
+    b.textContent = a;
+    b.onclick = () => { selTrfFrom = a; buildAddForm(); };
+    trfFromGrid.appendChild(b);
+  });
+
+  const trfToGrid = document.getElementById("trfToGrid");
+  trfToGrid.innerHTML = "";
+  ACCOUNTS.forEach((a) => {
+    const b = document.createElement("button");
+    b.className = a === selTrfTo ? "active" : "";
+    b.textContent = a;
+    b.onclick = () => { selTrfTo = a; buildAddForm(); };
+    trfToGrid.appendChild(b);
+  });
+
   const balForm = document.getElementById("add-conto");
   balForm.innerHTML = "";
   ACCOUNTS.forEach((acc) => {
@@ -213,6 +280,7 @@ function buildAddForm() {
 
 document.getElementById("expDate").value = todayISO();
 document.getElementById("incDate").value = todayISO();
+document.getElementById("trfDate").value = todayISO();
 
 document.getElementById("expSubmit").onclick = () => {
   const raw = document.getElementById("expAmount").value;
@@ -240,6 +308,20 @@ document.getElementById("incSubmit").onclick = () => {
   document.getElementById("incNote").value = "";
 };
 
+document.getElementById("trfSubmit").onclick = () => {
+  const raw = document.getElementById("trfAmount").value;
+  const val = parseFloat(raw.replace(",", "."));
+  if (!val || val <= 0) { toast("Inserisci un importo valido"); return; }
+  if (selTrfFrom === selTrfTo) { toast("Scegli due conti diversi"); return; }
+  addTransfer({
+    amount: val, from: selTrfFrom, to: selTrfTo,
+    note: document.getElementById("trfNote").value, date: document.getElementById("trfDate").value || todayISO(),
+  });
+  toast(`Giroconto di ${eur(val)} da ${selTrfFrom} a ${selTrfTo} registrato`);
+  document.getElementById("trfAmount").value = "";
+  document.getElementById("trfNote").value = "";
+};
+
 /* ───────────────── HISTORY ───────────────── */
 let histTab = "spese", histMonth = monthKey(todayISO());
 
@@ -253,7 +335,7 @@ document.querySelectorAll("[data-histtab]").forEach((btn) => {
 });
 
 function renderHistory() {
-  const all = [...expenses.map((e) => e.date), ...incomes.map((i) => i.date)];
+  const all = [...expenses.map((e) => e.date), ...incomes.map((i) => i.date), ...transfers.map((t) => t.date)];
   let months = Array.from(new Set(all.map(monthKey))).sort().reverse();
   if (months.length === 0) months = [monthKey(todayISO())];
   if (!months.includes(histMonth)) histMonth = months[0];
@@ -268,11 +350,13 @@ function renderHistory() {
     chipRow.appendChild(b);
   });
 
-  const list = histTab === "spese"
-    ? expenses.filter((e) => monthKey(e.date) === histMonth)
-    : incomes.filter((i) => monthKey(i.date) === histMonth);
+  const list = histTab === "spese" ? expenses.filter((e) => monthKey(e.date) === histMonth)
+    : histTab === "entrate" ? incomes.filter((i) => monthKey(i.date) === histMonth)
+    : transfers.filter((t) => monthKey(t.date) === histMonth);
   const total = list.reduce((s, e) => s + e.amount, 0);
-  document.getElementById("histTotalLine").innerHTML = `Totale ${histTab}: <strong style="color:#2c2a26">${eur(total)}</strong>`;
+  document.getElementById("histTotalLine").innerHTML = histTab === "giroconti"
+    ? `Totale spostato: <strong style="color:#2c2a26">${eur(total)}</strong>`
+    : `Totale ${histTab}: <strong style="color:#2c2a26">${eur(total)}</strong>`;
 
   const listEl = document.getElementById("histList");
   listEl.innerHTML = "";
@@ -284,20 +368,26 @@ function renderHistory() {
     const cat = EXPENSE_CATEGORIES.find((c) => c.name === item.category);
     const row = document.createElement("div");
     row.className = "movement";
+    const icon = histTab === "spese" ? (cat ? cat.icon : "📦") : histTab === "entrate" ? "💶" : "🔁";
+    const catLabel = histTab === "spese" ? item.category : histTab === "entrate" ? item.type : `${item.from} → ${item.to}`;
+    const metaLabel = histTab === "spese" ? item.user : histTab === "entrate" ? item.account : "";
+    const amountClass = histTab === "spese" ? "amount-out" : histTab === "entrate" ? "amount-in" : "";
     row.innerHTML = `
       <div class="movement-left">
-        <span class="movement-icon">${histTab === "spese" ? (cat ? cat.icon : "📦") : "💶"}</span>
+        <span class="movement-icon">${icon}</span>
         <div>
-          <div class="movement-cat">${histTab === "spese" ? item.category : item.type}</div>
-          <div class="movement-meta">${histTab === "spese" ? item.user : item.account} · ${new Date(item.date).toLocaleDateString("it-IT")}${item.note ? " · " + item.note : ""}</div>
+          <div class="movement-cat">${catLabel}</div>
+          <div class="movement-meta">${metaLabel ? metaLabel + " · " : ""}${new Date(item.date).toLocaleDateString("it-IT")}${item.note ? " · " + item.note : ""}</div>
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:10px">
-        <div class="mono ${histTab === "spese" ? "amount-out" : "amount-in"}">${eur(item.amount)}</div>
+        <div class="mono ${amountClass}" style="${histTab === "giroconti" ? "color:#5b7a9d;font-weight:600" : ""}">${eur(item.amount)}</div>
         <button class="del-btn" data-id="${item.id}">✕</button>
       </div>`;
     row.querySelector(".del-btn").onclick = () => {
-      histTab === "spese" ? deleteExpense(item.id) : deleteIncome(item.id);
+      if (histTab === "spese") deleteExpense(item.id);
+      else if (histTab === "entrate") deleteIncome(item.id);
+      else deleteTransfer(item.id);
       toast("Movimento eliminato");
       renderHistory();
     };
@@ -309,6 +399,7 @@ document.getElementById("exportBtn").onclick = () => {
   const lines = ["Tipo,Data,Categoria,Importo,Chi/Conto,Nota"];
   expenses.forEach((e) => lines.push(`Spesa,${e.date},${e.category},${e.amount},${e.user},"${e.note || ""}"`));
   incomes.forEach((i) => lines.push(`Entrata,${i.date},${i.type},${i.amount},${i.account},"${i.note || ""}"`));
+  transfers.forEach((t) => lines.push(`Giroconto,${t.date},"${t.from} -> ${t.to}",${t.amount},,"${t.note || ""}"`));
   const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -346,8 +437,11 @@ function renderDashboard() {
     grid.appendChild(el);
   });
 
-  const recent = [...expenses, ...incomes.map((i) => ({ ...i, category: i.type, isIncome: true }))]
-    .sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 6);
+  const recent = [
+    ...expenses,
+    ...incomes.map((i) => ({ ...i, category: i.type, isIncome: true })),
+    ...transfers.map((t) => ({ ...t, category: `${t.from} → ${t.to}`, isTransfer: true })),
+  ].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 6);
   const recentEl = document.getElementById("recentList");
   recentEl.innerHTML = "";
   if (recent.length === 0) {
@@ -357,15 +451,20 @@ function renderDashboard() {
     const cat = EXPENSE_CATEGORIES.find((c) => c.name === r.category);
     const row = document.createElement("div");
     row.className = "movement";
+    const icon = r.isTransfer ? "🔁" : r.isIncome ? "💶" : (cat ? cat.icon : "📦");
+    const meta = r.isTransfer ? "" : (r.isIncome ? r.account : r.user) + " · ";
+    const amountHtml = r.isTransfer
+      ? `<span class="mono" style="color:#5b7a9d;font-weight:600">${eur(r.amount)}</span>`
+      : `<span class="mono ${r.isIncome ? "amount-in" : "amount-out"}">${r.isIncome ? "+" : "−"}${eur(r.amount)}</span>`;
     row.innerHTML = `
       <div class="movement-left">
-        <span class="movement-icon">${r.isIncome ? "💶" : (cat ? cat.icon : "📦")}</span>
+        <span class="movement-icon">${icon}</span>
         <div>
           <div class="movement-cat">${r.category}</div>
-          <div class="movement-meta">${r.isIncome ? r.account : r.user} · ${new Date(r.date).toLocaleDateString("it-IT")}</div>
+          <div class="movement-meta">${meta}${new Date(r.date).toLocaleDateString("it-IT")}</div>
         </div>
       </div>
-      <div class="mono ${r.isIncome ? "amount-in" : "amount-out"}">${r.isIncome ? "+" : "−"}${eur(r.amount)}</div>`;
+      ${amountHtml}`;
     recentEl.appendChild(row);
   });
 }

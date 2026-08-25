@@ -146,6 +146,7 @@ button{cursor:pointer;border:none;background:none}
     <div class="tabbar">
       <button data-addtab="spesa" class="active">Spesa</button>
       <button data-addtab="entrata">Entrata</button>
+      <button data-addtab="giroconto">Giroconto</button>
       <button data-addtab="conto">Conti</button>
     </div>
 
@@ -197,7 +198,31 @@ button{cursor:pointer;border:none;background:none}
       <button class="submit-btn" style="background:#7c9473" id="incSubmit">Registra entrata</button>
     </div>
 
-    <div id="add-conto" style="display:none" id="balanceForm"></div>
+    <div id="add-giroconto" style="display:none">
+      <div class="field">
+        <div class="field-label">Importo (€)</div>
+        <input class="input" id="trfAmount" inputmode="decimal" placeholder="0,00">
+      </div>
+      <div class="field">
+        <div class="field-label">Da conto</div>
+        <div class="acc-grid4" id="trfFromGrid"></div>
+      </div>
+      <div class="field">
+        <div class="field-label">A conto</div>
+        <div class="acc-grid4" id="trfToGrid"></div>
+      </div>
+      <div class="field">
+        <div class="field-label">Nota (opzionale)</div>
+        <input class="input" id="trfNote" placeholder="es. accantonamento">
+      </div>
+      <div class="field">
+        <div class="field-label">Data</div>
+        <input class="input" type="date" id="trfDate">
+      </div>
+      <button class="submit-btn" style="background:#5b7a9d" id="trfSubmit">Registra giroconto</button>
+    </div>
+
+    <div id="add-conto" style="display:none"></div>
   </div>
 
   <!-- HISTORY -->
@@ -205,6 +230,7 @@ button{cursor:pointer;border:none;background:none}
     <div class="tabbar">
       <button data-histtab="spese" class="active">Spese</button>
       <button data-histtab="entrate">Entrate</button>
+      <button data-histtab="giroconti">Giroconti</button>
     </div>
     <div class="chip-row" id="monthChipRow"></div>
     <div class="total-line" id="histTotalLine"></div>
