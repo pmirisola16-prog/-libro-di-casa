@@ -49,8 +49,21 @@ function initFirebase() {
   }
   firebase.initializeApp(firebaseConfig);
   db = firebase.firestore();
-  firebaseReady = true;
 
+  firebase.auth().signInAnonymously().catch((err) => {
+    showError("Accesso non riuscito: " + err.message);
+    document.getElementById("loadingBox").style.display = "none";
+    document.getElementById("page-dashboard").classList.add("active");
+  });
+
+  firebase.auth().onAuthStateChanged((user) => {
+    if (!user || firebaseReady) return;
+    firebaseReady = true;
+    attachListeners();
+  });
+}
+
+function attachListeners() {
   db.collection("ledger").doc("expenses").onSnapshot((doc) => {
     expenses = doc.exists ? (doc.data().items || []) : [];
     render();
