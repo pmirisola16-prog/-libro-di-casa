@@ -18,6 +18,11 @@ const USERS = ["Pietro", "Marianna", "Entrambi"];
 let ACCOUNTS = ["Intesa", "BP", "Revolut", "BCC"];
 const MONTHS = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
 
+/* ═══════════════════════════════════════════════════════════════
+   ACCESSI AUTORIZZATI — devono coincidere con le regole Firestore
+   ═══════════════════════════════════════════════════════════════ */
+const ALLOWED_EMAILS = ["pmirisola16@gmail.com", "mariannaguarnieri20@gmail.com"];
+
 function eur(n) {
   n = Number(n || 0);
   const neg = n < 0;
@@ -50,17 +55,56 @@ function initFirebase() {
   firebase.initializeApp(firebaseConfig);
   db = firebase.firestore();
 
-  firebase.auth().signInAnonymously().catch((err) => {
-    showError("Accesso non riuscito: " + err.message);
-    document.getElementById("loadingBox").style.display = "none";
-    document.getElementById("page-dashboard").classList.add("active");
-  });
-
   firebase.auth().onAuthStateChanged((user) => {
-    if (!user || firebaseReady) return;
+    if (!user) { showLogin(); return; }
+    if (!ALLOWED_EMAILS.includes((user.email || "").toLowerCase())) {
+      firebase.auth().signOut();
+      showLogin("L'account " + (user.email || "") + " non e' autorizzato per questo libro.");
+      return;
+    }
+    hideLogin();
+    document.getElementById("userBadge").textContent = (user.displayName || user.email || "").split(" ")[0];
+    if (firebaseReady) return;
     firebaseReady = true;
     attachListeners();
   });
+
+  firebase.auth().getRedirectResult().catch((err) => {
+    showLogin("Accesso non riuscito: " + err.message);
+  });
+}
+
+/* ───────────────── LOGIN GOOGLE ───────────────── */
+function showLogin(msg) {
+  document.getElementById("loadingBox").style.display = "none";
+  document.getElementById("loginOverlay").style.display = "flex";
+  const box = document.getElementById("loginMsg");
+  if (msg) { box.textContent = msg; box.style.display = "block"; }
+  else { box.style.display = "none"; }
+}
+
+function hideLogin() {
+  document.getElementById("loginOverlay").style.display = "none";
+}
+
+function doGoogleLogin() {
+  const provider = new firebase.auth.GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: "select_account" });
+  document.getElementById("loginMsg").style.display = "none";
+  firebase.auth().signInWithPopup(provider).catch((err) => {
+    // Alcuni browser (Safari in PWA, popup bloccati) rifiutano la finestra:
+    // in quel caso si ripiega sul redirect a pagina intera.
+    if (["auth/popup-blocked", "auth/popup-closed-by-user", "auth/cancelled-popup-request", "auth/operation-not-supported-in-this-environment"].includes(err.code)) {
+      firebase.auth().signInWithRedirect(provider).catch((e2) => showLogin("Accesso non riuscito: " + e2.message));
+    } else {
+      showLogin("Accesso non riuscito: " + err.message);
+    }
+  });
+}
+
+function doLogout() {
+  if (!confirm("Uscire dal libro di casa su questo dispositivo?")) return;
+  firebase.auth().signOut().then(() => location.reload());
 }
 
 function attachListeners() {
@@ -927,6 +971,8 @@ function render() {
 }
 
 /* ───────────────── BOOT ───────────────── */
+document.getElementById("loginBtn").onclick = doGoogleLogin;
+document.getElementById("logoutBtn").onclick = doLogout;
 buildAddForm();
 initFirebase();
 
