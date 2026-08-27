@@ -642,6 +642,23 @@ document.querySelectorAll(".nav button").forEach((btn) => {
   });
 });
 
+document.getElementById("fabAddExpense").addEventListener("click", () => {
+  document.querySelectorAll(".nav button").forEach((b) => b.classList.remove("active"));
+  document.querySelectorAll(".page").forEach((p) => p.classList.remove("active"));
+  document.querySelector('.nav button[data-page="add"]').classList.add("active");
+  document.getElementById("page-add").classList.add("active");
+  document.querySelector('[data-addtab="spesa"]').click();
+  setTimeout(() => document.getElementById("expAmount").focus(), 50);
+});
+
+document.getElementById("seeAllMovements").addEventListener("click", () => {
+  document.querySelectorAll(".nav button").forEach((b) => b.classList.remove("active"));
+  document.querySelectorAll(".page").forEach((p) => p.classList.remove("active"));
+  document.querySelector('.nav button[data-page="history"]').classList.add("active");
+  document.getElementById("page-history").classList.add("active");
+  renderHistory();
+});
+
 /* ───────────────── ADD TABS ───────────────── */
 document.querySelectorAll("[data-addtab]").forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -1062,7 +1079,7 @@ function renderDashboard() {
     ...expenses,
     ...incomes.map((i) => ({ ...i, category: i.type, isIncome: true })),
     ...transfers.map((t) => ({ ...t, category: `${t.from} → ${t.to}`, isTransfer: true })),
-  ].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 6);
+  ].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 2);
   const recentEl = document.getElementById("recentList");
   recentEl.innerHTML = "";
   if (recent.length === 0) {

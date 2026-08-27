@@ -43,6 +43,10 @@ button{cursor:pointer;border:none;background:none}
 .nav button.active{color:#E7B7A0}
 .nav .icon{font-size:19px;line-height:1}
 
+.fab-add{position:fixed;right:calc(50% - 222px);bottom:calc(84px + env(safe-area-inset-bottom));width:52px;height:52px;border-radius:50%;background:#C1786F;color:#fff;display:flex;align-items:center;justify-content:center;font-size:24px;box-shadow:0 8px 20px rgba(58,51,45,.28);z-index:25;transition:transform .1s}
+.fab-add:active{transform:scale(.92)}
+@media (max-width:480px){.fab-add{right:18px}}
+
 .page{padding:20px 20px 0;display:none}
 .page.active{display:block}
 
@@ -51,6 +55,8 @@ button{cursor:pointer;border:none;background:none}
 .balance-net{font-family:'Manrope',sans-serif;font-size:32px;font-weight:700;margin-top:6px}
 .balance-sub{display:flex;gap:20px;margin-top:14px;font-size:12px}
 .section-title{font-size:11px;letter-spacing:1.5px;color:#9C8F84;margin-bottom:8px;text-transform:uppercase;font-weight:600}
+.section-title-row{display:flex;justify-content:space-between;align-items:center}
+.see-all-link{font-size:11px;letter-spacing:.3px;color:#C1786F;text-transform:none;font-weight:600}
 .total-card{background:#fff;border:1px solid #EFE3D8;border-radius:14px;padding:16px 18px;margin-bottom:18px}
 .total-val{font-family:'Manrope',sans-serif;font-size:26px;font-weight:700;margin-top:4px;color:#3A332D}
 .accounts-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px}
@@ -191,8 +197,9 @@ button{cursor:pointer;border:none;background:none}
     </div>
     <div class="section-title" id="dashLiquidLabel">Conti correnti</div>
     <div class="accounts-grid" id="accountsGrid"></div>
-    <div class="section-title">Ultimi movimenti</div>
+    <div class="section-title section-title-row">Ultimi movimenti<button class="see-all-link" id="seeAllMovements">vedi tutto</button></div>
     <div id="recentList"></div>
+    <button class="fab-add" id="fabAddExpense" aria-label="Aggiungi spesa"><i class="ti ti-plus"></i></button>
   </div>
 
   <!-- ADD -->
