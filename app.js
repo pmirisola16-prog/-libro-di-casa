@@ -1,22 +1,62 @@
 /* ───────────────── DATA MODEL ───────────────── */
+/* Icone: prefisso "ti:" = icona vettoriale curata; senza prefisso = emoji digitata dall'utente */
 const DEFAULT_CATEGORIES = [
-  { name: "Spesa", icon: "🛒", color: "#7c9473" },
-  { name: "Bollette", icon: "⚡", color: "#c9a13b" },
-  { name: "Affitto/Mutuo", icon: "🏠", color: "#5b7a9d" },
-  { name: "Ristoranti", icon: "🍽️", color: "#b6633f" },
-  { name: "Trasporti", icon: "🚗", color: "#8a7ca8" },
-  { name: "Salute", icon: "💊", color: "#a8506b" },
-  { name: "Abbigliamento", icon: "👕", color: "#4f9d9d" },
-  { name: "Bimbo", icon: "👶", color: "#d98c5f" },
-  { name: "Svago", icon: "🎬", color: "#c47b3f" },
-  { name: "Altro", icon: "📦", color: "#8a8a83" },
+  { name: "Spesa", icon: "ti:shopping-cart", color: "#7C9473" },
+  { name: "Bollette", icon: "ti:bolt", color: "#C99A3E" },
+  { name: "Affitto/Mutuo", icon: "ti:home", color: "#7B93AE" },
+  { name: "Ristoranti", icon: "ti:tools-kitchen-2", color: "#C1786F" },
+  { name: "Trasporti", icon: "ti:car", color: "#9C8AA5" },
+  { name: "Salute", icon: "ti:pill", color: "#BD6E7A" },
+  { name: "Abbigliamento", icon: "ti:shirt", color: "#6FA08C" },
+  { name: "Bimbo", icon: "ti:baby-carriage", color: "#D69A6B" },
+  { name: "Svago", icon: "ti:movie", color: "#9089B8" },
+  { name: "Altro", icon: "ti:package", color: "#B0A296" },
 ];
 let EXPENSE_CATEGORIES = [...DEFAULT_CATEGORIES];
-const CAT_PALETTE = ["#7c9473","#c9a13b","#5b7a9d","#b6633f","#8a7ca8","#a8506b","#4f9d9d","#d98c5f","#c47b3f","#8a8a83","#6b8e6b","#9d7b5b"];
+const CAT_PALETTE = ["#7C9473","#C99A3E","#7B93AE","#C1786F","#9C8AA5","#BD6E7A","#6FA08C","#D69A6B","#9089B8","#B0A296","#8C6E5E","#A8927E"];
+const DEADLINE_CATEGORIES = [
+  { name: "Assicurazione auto", icon: "ti:car", color: "#7B93AE" },
+  { name: "Revisione auto", icon: "ti:tool", color: "#9C8AA5" },
+  { name: "Bollo auto", icon: "ti:file-text", color: "#C99A3E" },
+  { name: "Cambio gomme", icon: "ti:disc", color: "#B0A296" },
+  { name: "Manutenzione casa", icon: "ti:home", color: "#C1786F" },
+  { name: "Altro", icon: "ti:pin", color: "#8C6E5E" },
+];
+const ICON_INCOME = { icon: "ti:wallet", color: "#7C9473" };
+const ICON_TRANSFER = { icon: "ti:arrows-exchange", color: "#7B93AE" };
+const ICON_OTHER = { icon: "ti:package", color: "#B0A296" };
+/* Renderizza un'icona: vettoriale se prefissata "ti:", altrimenti emoji testuale digitata dall'utente */
+function catIconHtml(icon) {
+  return icon && icon.startsWith("ti:") ? `<i class="ti ti-${icon.slice(3)}"></i>` : (icon || "🏷️");
+}
+/* Tinta chiara calcolata al volo da un colore esadecimale, per lo sfondo del cerchietto icona */
+function tintOf(hex) {
+  const h = (hex || "#B0A296").replace("#", "");
+  const r = parseInt(h.substr(0, 2), 16), g = parseInt(h.substr(2, 2), 16), b = parseInt(h.substr(4, 2), 16);
+  const mix = (c) => Math.round(c + (255 - c) * 0.82);
+  return `rgb(${mix(r)},${mix(g)},${mix(b)})`;
+}
+function iconWrap(icon, color) {
+  const inner = icon && icon.startsWith("ti:")
+    ? `<i class="ti ti-${icon.slice(3)}" style="color:${color}"></i>`
+    : `<span style="font-size:15px">${icon || "🏷️"}</span>`;
+  return `<span class="movement-icon-wrap" style="background:${tintOf(color)}">${inner}</span>`;
+}
 const INCOME_TYPES = ["Stipendio Pietro", "Stipendio Marianna", "Entrata secondaria"];
 const USERS = ["Pietro", "Marianna", "Entrambi"];
 let ACCOUNTS = ["Intesa", "BP", "Revolut", "BCC"];
 const MONTHS = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
+function addMonthsISO(dateStr, months) {
+  const d = new Date(dateStr);
+  d.setMonth(d.getMonth() + months);
+  return d.toISOString().slice(0, 10);
+}
+function daysUntil(dateStr) {
+  const today = new Date(todayISO());
+  const due = new Date(dateStr);
+  return Math.round((due - today) / 86400000);
+}
+
 
 /* ═══════════════════════════════════════════════════════════════
    ACCESSI AUTORIZZATI — devono coincidere con le regole Firestore
@@ -40,6 +80,7 @@ function uid() { return Date.now().toString(36) + Math.random().toString(36).sli
 let expenses = [];
 let incomes = [];
 let transfers = [];
+let deadlines = [];
 let balances = { Intesa: 0, BP: 0, Revolut: 0, BCC: 0 };
 let db = null;
 let firebaseReady = false;
@@ -130,6 +171,11 @@ function attachListeners() {
     render();
   }, (err) => showError("Errore lettura giroconti: " + err.message));
 
+  db.collection("ledger").doc("deadlines").onSnapshot((doc) => {
+    deadlines = doc.exists ? (doc.data().items || []) : [];
+    render();
+  }, (err) => showError("Errore lettura scadenze: " + err.message));
+
   db.collection("ledger").doc("categories").onSnapshot((doc) => {
     if (doc.exists && Array.isArray(doc.data().list) && doc.data().list.length) {
       EXPENSE_CATEGORIES = doc.data().list;
@@ -152,7 +198,7 @@ function attachListeners() {
 function setSyncing(v) {
   const el = document.getElementById("syncStatus");
   el.innerHTML = v
-    ? '<span class="dot" style="background:#b6633f"></span>salvo…'
+    ? '<span class="dot" style="background:#C1786F"></span>salvo…'
     : '<span class="dot" style="background:#7c9473"></span>sincronizzato';
 }
 function showError(msg) {
@@ -381,6 +427,33 @@ function deleteTransfer(id) {
   render();
 }
 
+function addDeadline(entry) {
+  deadlines = [{ ...entry, id: uid() }, ...deadlines];
+  persist("deadlines", { items: deadlines });
+  render();
+}
+function deleteDeadline(id) {
+  deadlines = deadlines.filter((d) => d.id !== id);
+  persist("deadlines", { items: deadlines });
+  render();
+  toast("Scadenza eliminata");
+}
+function completeDeadline(id) {
+  const item = deadlines.find((d) => d.id === id);
+  if (!item) return;
+  if (item.recurrence && item.recurrence !== "none") {
+    const months = item.recurrence === "6m" ? 6 : 12;
+    const newDate = addMonthsISO(item.dueDate, months);
+    deadlines = deadlines.map((d) => (d.id === id ? { ...d, dueDate: newDate } : d));
+    toast(`Rinnovata al ${new Date(newDate).toLocaleDateString("it-IT")}`);
+  } else {
+    deadlines = deadlines.filter((d) => d.id !== id);
+    toast("Scadenza completata");
+  }
+  persist("deadlines", { items: deadlines });
+  render();
+}
+
 /* ───────────────── EDIT MODAL ───────────────── */
 let editState = null; // { kind: 'spesa'|'entrata'|'giroconto', id, data }
 
@@ -415,7 +488,7 @@ function renderEditModal() {
   const { kind, data } = editState;
   const title = kind === "spesa" ? "Modifica spesa" : kind === "entrata" ? "Modifica entrata" : "Modifica giroconto";
 
-  let html = `<div class="modal-title">${title}<button class="modal-close" id="editCloseBtn">✕</button></div>`;
+  let html = `<div class="modal-title">${title}<button class="modal-close" id="editCloseBtn"><i class="ti ti-x"></i></button></div>`;
   html += `<div class="field"><div class="field-label">Importo (€)</div><input class="input" id="editAmount" inputmode="decimal" value="${String(data.amount).replace(".", ",")}"></div>`;
 
   if (kind === "spesa") {
@@ -432,7 +505,7 @@ function renderEditModal() {
 
   html += `<div class="field"><div class="field-label">Nota (opzionale)</div><input class="input" id="editNote" value="${(data.note || "").replace(/"/g, "&quot;")}"></div>`;
   html += `<div class="field"><div class="field-label">Data</div><input class="input" type="date" id="editDate" value="${data.date}"></div>`;
-  html += `<button class="submit-btn" style="background:#2c2a26" id="editSaveBtn">Salva modifiche</button>`;
+  html += `<button class="submit-btn" style="background:#3A332D" id="editSaveBtn">Salva modifiche</button>`;
   html += `<button class="delete-link-btn" id="editDeleteBtn">Elimina movimento</button>`;
 
   card.innerHTML = html;
@@ -444,7 +517,7 @@ function renderEditModal() {
       const b = document.createElement("button");
       b.className = "chip" + (c.name === data.category ? " active" : "");
       if (c.name === data.category) { b.style.background = c.color; b.style.color = "#fff"; b.style.borderColor = c.color; }
-      b.innerHTML = `<span class="ic">${c.icon}</span>${c.name}`;
+      b.innerHTML = `<span class="ic">${catIconHtml(c.icon)}</span>${c.name}`;
       b.onclick = () => { syncEditInputs(); editState.data.category = c.name; renderEditModal(); };
       catGrid.appendChild(b);
     });
@@ -547,6 +620,7 @@ document.querySelectorAll(".nav button").forEach((btn) => {
     document.getElementById("page-" + btn.dataset.page).classList.add("active");
     if (btn.dataset.page === "stats") renderStats();
     if (btn.dataset.page === "history") renderHistory();
+    if (btn.dataset.page === "scadenze") renderDeadlines();
   });
 });
 
@@ -574,7 +648,7 @@ function buildAddForm() {
     const b = document.createElement("button");
     b.className = "chip" + (c.name === selCategory ? " active" : "");
     if (c.name === selCategory) { b.style.background = c.color; b.style.color = "#fff"; b.style.borderColor = c.color; }
-    b.innerHTML = `<span class="ic">${c.icon}</span>${c.name}`;
+    b.innerHTML = `<span class="ic">${catIconHtml(c.icon)}</span>${c.name}`;
     b.onclick = () => { selCategory = c.name; buildAddForm(); };
     catGrid.appendChild(b);
   });
@@ -593,8 +667,8 @@ function buildAddForm() {
   catDelList.innerHTML = "";
   EXPENSE_CATEGORIES.forEach((c) => {
     const row = document.createElement("div");
-    row.style.cssText = "display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #ddd5c4;font-size:13px";
-    row.innerHTML = `<span>${c.icon} ${c.name}</span><button style="color:#a8506b;font-size:15px;padding:0 6px">✕</button>`;
+    row.style.cssText = "display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #EFE3D8;font-size:13px";
+    row.innerHTML = `<span>${catIconHtml(c.icon)} ${c.name}</span><button style="color:#B65C6B;font-size:15px;padding:0 6px"><i class="ti ti-x"></i></button>`;
     row.querySelector("button").onclick = () => removeCategory(c.name);
     catDelList.appendChild(row);
   });
@@ -659,7 +733,7 @@ function buildAddForm() {
       <div class="balance-save">
         <input class="input" style="flex:1" id="bal-${acc}" type="text" inputmode="decimal" pattern="[0-9.,-]*" value="${balances[acc] ?? 0}">
         <button data-acc="${acc}" class="bal-save-btn">Salva</button>
-        <button data-acc="${acc}" class="bal-del-btn" style="background:#fff;color:#a8506b;border:1px solid #ddd5c4;padding:0 12px;border-radius:10px">✕</button>
+        <button data-acc="${acc}" class="bal-del-btn" style="background:#fff;color:#B65C6B;border:1px solid #EFE3D8;padding:0 12px;border-radius:10px"><i class="ti ti-x"></i></button>
       </div>`;
     balForm.appendChild(wrap);
     wrap.querySelector(".bal-save-btn").onclick = () => {
@@ -694,6 +768,52 @@ document.getElementById("editOverlay").addEventListener("click", (ev) => {
 document.getElementById("expDate").value = todayISO();
 document.getElementById("incDate").value = todayISO();
 document.getElementById("trfDate").value = todayISO();
+document.getElementById("dlDate").value = todayISO();
+
+let selDlCategory = DEADLINE_CATEGORIES[0].name;
+let selDlRecurrence = "none";
+const RECURRENCE_OPTIONS = [
+  { key: "none", label: "Mai" },
+  { key: "6m", label: "6 mesi" },
+  { key: "12m", label: "1 anno" },
+];
+
+function buildDeadlineForm() {
+  const catGrid = document.getElementById("dlCategoryGrid");
+  catGrid.innerHTML = "";
+  DEADLINE_CATEGORIES.forEach((c) => {
+    const b = document.createElement("button");
+    b.className = "chip" + (c.name === selDlCategory ? " active" : "");
+    if (c.name === selDlCategory) { b.style.background = c.color; b.style.color = "#fff"; b.style.borderColor = c.color; }
+    b.innerHTML = `<span class="ic">${catIconHtml(c.icon)}</span>${c.name}`;
+    b.onclick = () => { selDlCategory = c.name; buildDeadlineForm(); };
+    catGrid.appendChild(b);
+  });
+
+  const recRow = document.getElementById("dlRecurrenceRow");
+  recRow.innerHTML = "";
+  RECURRENCE_OPTIONS.forEach((r) => {
+    const b = document.createElement("button");
+    b.className = r.key === selDlRecurrence ? "active" : "";
+    b.textContent = r.label;
+    b.onclick = () => { selDlRecurrence = r.key; buildDeadlineForm(); };
+    recRow.appendChild(b);
+  });
+}
+
+document.getElementById("dlSubmit").onclick = () => {
+  const dateVal = document.getElementById("dlDate").value;
+  if (!dateVal) { toast("Scegli una data di scadenza"); return; }
+  const customTitle = document.getElementById("dlTitle").value.trim();
+  const title = selDlCategory === "Altro" && customTitle ? customTitle : (customTitle || selDlCategory);
+  addDeadline({
+    title, category: selDlCategory, dueDate: dateVal,
+    recurrence: selDlRecurrence, note: document.getElementById("dlNote").value,
+  });
+  toast(`Scadenza "${title}" aggiunta`);
+  document.getElementById("dlTitle").value = "";
+  document.getElementById("dlNote").value = "";
+};
 
 document.getElementById("toggleCatEdit").onclick = () => {
   const box = document.getElementById("catEditBox");
@@ -779,8 +899,8 @@ function renderHistory() {
     : transfers.filter((t) => monthKey(t.date) === histMonth);
   const total = list.reduce((s, e) => s + e.amount, 0);
   document.getElementById("histTotalLine").innerHTML = histTab === "giroconti"
-    ? `Totale spostato: <strong style="color:#2c2a26">${eur(total)}</strong>`
-    : `Totale ${histTab}: <strong style="color:#2c2a26">${eur(total)}</strong>`;
+    ? `Totale spostato: <strong style="color:#3A332D">${eur(total)}</strong>`
+    : `Totale ${histTab}: <strong style="color:#3A332D">${eur(total)}</strong>`;
 
   const listEl = document.getElementById("histList");
   listEl.innerHTML = "";
@@ -792,21 +912,23 @@ function renderHistory() {
     const cat = EXPENSE_CATEGORIES.find((c) => c.name === item.category);
     const row = document.createElement("div");
     row.className = "movement";
-    const icon = histTab === "spese" ? (cat ? cat.icon : "📦") : histTab === "entrate" ? "💶" : "🔁";
+    const iconHtml = histTab === "spese" ? iconWrap(cat ? cat.icon : ICON_OTHER.icon, cat ? cat.color : ICON_OTHER.color)
+      : histTab === "entrate" ? iconWrap(ICON_INCOME.icon, ICON_INCOME.color)
+      : iconWrap(ICON_TRANSFER.icon, ICON_TRANSFER.color);
     const catLabel = histTab === "spese" ? item.category : histTab === "entrate" ? item.type : `${item.from} → ${item.to}`;
     const metaLabel = histTab === "spese" ? (item.account ? `${item.user} · ${item.account}` : item.user) : histTab === "entrate" ? item.account : "";
     const amountClass = histTab === "spese" ? "amount-out" : histTab === "entrate" ? "amount-in" : "";
     row.innerHTML = `
       <div class="movement-left">
-        <span class="movement-icon">${icon}</span>
+        ${iconHtml}
         <div>
           <div class="movement-cat">${catLabel}</div>
           <div class="movement-meta">${metaLabel ? metaLabel + " · " : ""}${new Date(item.date).toLocaleDateString("it-IT")}${item.note ? " · " + item.note : ""}</div>
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:10px">
-        <div class="mono ${amountClass}" style="${histTab === "giroconti" ? "color:#5b7a9d;font-weight:600" : ""}">${eur(item.amount)}</div>
-        <button class="del-btn" data-id="${item.id}">✕</button>
+        <div class="mono ${amountClass}" style="${histTab === "giroconti" ? "color:#7B93AE;font-weight:600" : ""}">${eur(item.amount)}</div>
+        <button class="del-btn" data-id="${item.id}"><i class="ti ti-x"></i></button>
       </div>`;
     row.querySelector(".del-btn").onclick = (ev) => {
       ev.stopPropagation();
@@ -850,13 +972,39 @@ function renderDashboard() {
 
   const netEl = document.getElementById("dashNet");
   netEl.textContent = (net >= 0 ? "+" : "") + eur(net);
-  netEl.style.color = net >= 0 ? "#8bb082" : "#d9755f";
+  netEl.style.color = net >= 0 ? "#7C9473" : "#C1786F";
   document.getElementById("dashIn").textContent = eur(totalIn);
   document.getElementById("dashOut").textContent = eur(totalOut);
 
   const totalLiquid = ACCOUNTS.reduce((s, a) => s + Number(balances[a] || 0), 0);
   document.getElementById("dashTotalLiquid").textContent = eur(totalLiquid);
   document.getElementById("dashLiquidLabel").textContent = "Dettaglio conti";
+
+  const urgent = deadlines
+    .map((d) => ({ ...d, days: daysUntil(d.dueDate) }))
+    .filter((d) => d.days <= 30)
+    .sort((a, b) => a.days - b.days)
+    .slice(0, 3);
+  const dashDlWrap = document.getElementById("dashDeadlinesWrap");
+  const dashDlEl = document.getElementById("dashDeadlines");
+  if (urgent.length === 0) {
+    dashDlWrap.style.display = "none";
+  } else {
+    dashDlWrap.style.display = "block";
+    dashDlEl.innerHTML = "";
+    urgent.forEach((d) => {
+      const cat = DEADLINE_CATEGORIES.find((c) => c.name === d.category);
+      const row = document.createElement("div");
+      row.className = "dash-deadline";
+      row.innerHTML = `
+        <div class="movement-left">
+          ${iconWrap(cat ? cat.icon : ICON_OTHER.icon, cat ? cat.color : ICON_OTHER.color)}
+          <div class="movement-cat">${d.title}</div>
+        </div>
+        <span class="dl-days mono" style="color:${dlColor(d.days)}">${dlLabel(d.days)}</span>`;
+      dashDlEl.appendChild(row);
+    });
+  }
 
   const grid = document.getElementById("accountsGrid");
   grid.innerHTML = "";
@@ -881,14 +1029,16 @@ function renderDashboard() {
     const cat = EXPENSE_CATEGORIES.find((c) => c.name === r.category);
     const row = document.createElement("div");
     row.className = "movement";
-    const icon = r.isTransfer ? "🔁" : r.isIncome ? "💶" : (cat ? cat.icon : "📦");
+    const iconHtml = r.isTransfer ? iconWrap(ICON_TRANSFER.icon, ICON_TRANSFER.color)
+      : r.isIncome ? iconWrap(ICON_INCOME.icon, ICON_INCOME.color)
+      : iconWrap(cat ? cat.icon : ICON_OTHER.icon, cat ? cat.color : ICON_OTHER.color);
     const meta = r.isTransfer ? "" : (r.isIncome ? r.account : r.user) + " · ";
     const amountHtml = r.isTransfer
-      ? `<span class="mono" style="color:#5b7a9d;font-weight:600">${eur(r.amount)}</span>`
+      ? `<span class="mono" style="color:#7B93AE;font-weight:600">${eur(r.amount)}</span>`
       : `<span class="mono ${r.isIncome ? "amount-in" : "amount-out"}">${r.isIncome ? "+" : "−"}${eur(r.amount)}</span>`;
     row.innerHTML = `
       <div class="movement-left">
-        <span class="movement-icon">${icon}</span>
+        ${iconHtml}
         <div>
           <div class="movement-cat">${r.category}</div>
           <div class="movement-meta">${meta}${new Date(r.date).toLocaleDateString("it-IT")}</div>
@@ -900,6 +1050,50 @@ function renderDashboard() {
       openEditModal(kind, r.id);
     };
     recentEl.appendChild(row);
+  });
+}
+
+/* ───────────────── SCADENZE ───────────────── */
+function dlColor(days) {
+  if (days < 0) return "#B65C6B";
+  if (days <= 30) return "#C99A3E";
+  return "#7C9473";
+}
+function dlLabel(days) {
+  if (days < 0) return `Scaduta da ${Math.abs(days)} giorni`;
+  if (days === 0) return "Scade oggi";
+  return `Tra ${days} giorni`;
+}
+function renderDeadlines() {
+  buildDeadlineForm();
+  const sorted = [...deadlines].sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+  const listEl = document.getElementById("deadlinesList");
+  listEl.innerHTML = "";
+  if (sorted.length === 0) {
+    listEl.innerHTML = `<div class="empty">Nessuna scadenza salvata — aggiungine una qui sotto.</div>`;
+    return;
+  }
+  sorted.forEach((item) => {
+    const cat = DEADLINE_CATEGORIES.find((c) => c.name === item.category);
+    const days = daysUntil(item.dueDate);
+    const row = document.createElement("div");
+    row.className = "movement";
+    row.innerHTML = `
+      <div class="movement-left">
+        ${iconWrap(cat ? cat.icon : ICON_OTHER.icon, cat ? cat.color : ICON_OTHER.color)}
+        <div>
+          <div class="movement-cat">${item.title}</div>
+          <div class="movement-meta">${new Date(item.dueDate).toLocaleDateString("it-IT")}${item.note ? " · " + item.note : ""}${item.recurrence !== "none" ? " · si ripete" : ""}</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="dl-days mono" style="color:${dlColor(days)}">${dlLabel(days)}</span>
+        <button class="dl-done" data-id="${item.id}"><i class="ti ti-check"></i></button>
+        <button class="del-btn" data-id="${item.id}"><i class="ti ti-x"></i></button>
+      </div>`;
+    row.querySelector(".dl-done").onclick = () => completeDeadline(item.id);
+    row.querySelector(".del-btn").onclick = () => deleteDeadline(item.id);
+    listEl.appendChild(row);
   });
 }
 
@@ -956,9 +1150,9 @@ function renderStats() {
     type: "bar",
     data: { labels: trendLabels, datasets: [
       { label: "Entrate", data: trendIn, backgroundColor: "#7c9473", borderRadius: 4 },
-      { label: "Uscite", data: trendOut, backgroundColor: "#b6633f", borderRadius: 4 },
+      { label: "Uscite", data: trendOut, backgroundColor: "#C1786F", borderRadius: 4 },
     ]},
-    options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => ctx.dataset.label + ": " + eur(ctx.parsed.y) } } }, scales: { x: { grid: { display: false } }, y: { grid: { color: "#ddd5c4" } } } },
+    options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => ctx.dataset.label + ": " + eur(ctx.parsed.y) } } }, scales: { x: { grid: { display: false } }, y: { grid: { color: "#EFE3D8" } } } },
   });
 }
 
@@ -968,12 +1162,14 @@ function render() {
   renderDashboard();
   if (document.getElementById("page-history").classList.contains("active")) renderHistory();
   if (document.getElementById("page-stats").classList.contains("active")) renderStats();
+  if (document.getElementById("page-scadenze").classList.contains("active")) renderDeadlines();
 }
 
 /* ───────────────── BOOT ───────────────── */
 document.getElementById("loginBtn").onclick = doGoogleLogin;
 document.getElementById("logoutBtn").onclick = doLogout;
 buildAddForm();
+buildDeadlineForm();
 initFirebase();
 
 /* Register service worker for offline/installable support */
