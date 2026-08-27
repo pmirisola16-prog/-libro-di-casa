@@ -111,6 +111,9 @@ button{cursor:pointer;border:none;background:none}
 .chart-wrap2{height:200px;margin-bottom:24px}
 
 .dl-days{font-size:11px;font-weight:600;white-space:nowrap}
+.amount-hint{font-family:'Manrope',sans-serif;font-size:20px;font-weight:700;margin-top:8px;color:#9C8F84;min-height:26px}
+.amount-hint.ok{color:#7C9473}
+.amount-hint.bad{color:#B65C6B;font-size:13px;font-weight:500;font-family:'Inter',sans-serif}
 .dl-done{background:#fff;color:#3A332D;border:1px solid #EFE3D8;border-radius:8px;font-size:11px;padding:5px 9px}
 .dl-done i{font-size:14px}
 .dash-deadline{background:#fff;border:1px solid #EFE3D8;border-radius:12px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
@@ -204,7 +207,7 @@ button{cursor:pointer;border:none;background:none}
     <div id="add-spesa">
       <div class="field">
         <div class="field-label">Importo (€)</div>
-        <input class="input" id="expAmount" inputmode="decimal" placeholder="0,00">
+        <input class="input" id="expAmount" inputmode="decimal" placeholder="0,00"><div class="amount-hint" id="expAmountHint"></div>
       </div>
       <div class="field">
         <div class="field-label">Categoria</div>
@@ -241,7 +244,7 @@ button{cursor:pointer;border:none;background:none}
     <div id="add-entrata" style="display:none">
       <div class="field">
         <div class="field-label">Importo (€)</div>
-        <input class="input" id="incAmount" inputmode="decimal" placeholder="0,00">
+        <input class="input" id="incAmount" inputmode="decimal" placeholder="0,00"><div class="amount-hint" id="incAmountHint"></div>
       </div>
       <div class="field">
         <div class="field-label">Tipo di entrata</div>
@@ -265,7 +268,7 @@ button{cursor:pointer;border:none;background:none}
     <div id="add-giroconto" style="display:none">
       <div class="field">
         <div class="field-label">Importo (€)</div>
-        <input class="input" id="trfAmount" inputmode="decimal" placeholder="0,00">
+        <input class="input" id="trfAmount" inputmode="decimal" placeholder="0,00"><div class="amount-hint" id="trfAmountHint"></div>
       </div>
       <div class="field">
         <div class="field-label">Da conto</div>

@@ -71,6 +71,24 @@ function eur(n) {
   intPart = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
   return "€" + (neg ? "-" : "") + intPart + "," + decPart;
 }
+/* Interpreta un importo scritto in qualsiasi formato comune: "50", "50,00",
+   "50,20", "50.20", con o senza simbolo €, con o senza spazi. Se compaiono
+   sia virgola che punto, l'ultimo dei due è considerato separatore decimale. */
+function parseAmount(raw) {
+  if (raw === null || raw === undefined) return NaN;
+  let s = String(raw).trim();
+  if (!s) return NaN;
+  s = s.replace(/[^0-9.,-]/g, "");
+  const lastComma = s.lastIndexOf(",");
+  const lastDot = s.lastIndexOf(".");
+  if (lastComma > -1 && lastDot > -1) {
+    if (lastComma > lastDot) s = s.replace(/\./g, "").replace(",", ".");
+    else s = s.replace(/,/g, "");
+  } else if (lastComma > -1) {
+    s = s.replace(",", ".");
+  }
+  return parseFloat(s);
+}
 function monthKey(d) { const x = new Date(d); return `${x.getFullYear()}-${x.getMonth()}`; }
 function monthLabel(k) { const [y, m] = k.split("-"); return `${MONTHS[parseInt(m)]} ${y}`; }
 function todayISO() { return new Date().toISOString().slice(0, 10); }
@@ -575,7 +593,7 @@ function renderEditModal() {
 
   document.getElementById("editSaveBtn").onclick = () => {
     syncEditInputs();
-    const val = parseFloat(String(editState.data.amount).replace(",", "."));
+    const val = parseAmount(editState.data.amount);
     if (!val || val <= 0) { toast("Inserisci un importo valido"); return; }
     const date = editState.data.date || todayISO();
     const note = editState.data.note || "";
@@ -737,7 +755,7 @@ function buildAddForm() {
       </div>`;
     balForm.appendChild(wrap);
     wrap.querySelector(".bal-save-btn").onclick = () => {
-      const val = parseFloat(document.getElementById(`bal-${acc}`).value.replace(",", ".")) || 0;
+      const val = parseAmount(document.getElementById(`bal-${acc}`).value) || 0;
       updateBalance(acc, val);
       toast(`Saldo ${acc} aggiornato`);
     };
@@ -826,9 +844,31 @@ document.getElementById("addCatBtn").onclick = () => {
   document.getElementById("newCatIcon").value = "";
 };
 
+/* ───────────────── ANTEPRIMA IMPORTO IN TEMPO REALE ───────────────── */
+function wireAmountHint(inputId, hintId) {
+  const input = document.getElementById(inputId);
+  const hint = document.getElementById(hintId);
+  if (!input || !hint) return;
+  input.addEventListener("input", () => {
+    const raw = input.value.trim();
+    if (!raw) { hint.textContent = ""; hint.className = "amount-hint"; return; }
+    const val = parseAmount(raw);
+    if (!val || val <= 0 || isNaN(val)) {
+      hint.textContent = "Importo non riconosciuto";
+      hint.className = "amount-hint bad";
+    } else {
+      hint.textContent = "= " + eur(val);
+      hint.className = "amount-hint ok";
+    }
+  });
+}
+wireAmountHint("expAmount", "expAmountHint");
+wireAmountHint("incAmount", "incAmountHint");
+wireAmountHint("trfAmount", "trfAmountHint");
+
 document.getElementById("expSubmit").onclick = () => {
   const raw = document.getElementById("expAmount").value;
-  const val = parseFloat(raw.replace(",", "."));
+  const val = parseAmount(raw);
   if (!val || val <= 0) { toast("Inserisci un importo valido"); return; }
   addExpense({
     amount: val, category: selCategory, user: selUser, account: selExpAccount,
@@ -836,12 +876,13 @@ document.getElementById("expSubmit").onclick = () => {
   });
   toast(`Spesa di ${eur(val)} scalata da ${selExpAccount}`);
   document.getElementById("expAmount").value = "";
+  const eh = document.getElementById("expAmountHint"); if (eh) eh.textContent = "";
   document.getElementById("expNote").value = "";
 };
 
 document.getElementById("incSubmit").onclick = () => {
   const raw = document.getElementById("incAmount").value;
-  const val = parseFloat(raw.replace(",", "."));
+  const val = parseAmount(raw);
   if (!val || val <= 0) { toast("Inserisci un importo valido"); return; }
   addIncome({
     amount: val, type: selIncomeType, account: selIncomeAccount,
@@ -849,12 +890,13 @@ document.getElementById("incSubmit").onclick = () => {
   });
   toast(`Entrata di ${eur(val)} registrata`);
   document.getElementById("incAmount").value = "";
+  const ih = document.getElementById("incAmountHint"); if (ih) ih.textContent = "";
   document.getElementById("incNote").value = "";
 };
 
 document.getElementById("trfSubmit").onclick = () => {
   const raw = document.getElementById("trfAmount").value;
-  const val = parseFloat(raw.replace(",", "."));
+  const val = parseAmount(raw);
   if (!val || val <= 0) { toast("Inserisci un importo valido"); return; }
   if (selTrfFrom === selTrfTo) { toast("Scegli due conti diversi"); return; }
   addTransfer({
@@ -863,6 +905,7 @@ document.getElementById("trfSubmit").onclick = () => {
   });
   toast(`Giroconto di ${eur(val)} da ${selTrfFrom} a ${selTrfTo} registrato`);
   document.getElementById("trfAmount").value = "";
+  const th = document.getElementById("trfAmountHint"); if (th) th.textContent = "";
   document.getElementById("trfNote").value = "";
 };
 
