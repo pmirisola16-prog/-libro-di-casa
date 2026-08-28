@@ -1238,3 +1238,25 @@ if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("service-worker.js").catch(() => {});
   });
 }
+
+/* ───────────────── CHIUSURA TASTIERA ───────────────── */
+/* Il tasto "invio"/"fine" della tastierina chiude la tastiera invece di non fare nulla. */
+document.addEventListener("keydown", (e) => {
+  const t = e.target;
+  if (e.key !== "Enter" || !t || t.tagName !== "INPUT" || t.type === "date") return;
+  e.preventDefault();
+  t.blur();
+});
+
+/* Dopo aver registrato un movimento la tastiera si chiude da sola. */
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".submit-btn, .bal-save-btn, #addAccBtn, #addCatBtn")) return;
+  const active = document.activeElement;
+  if (active && active.tagName === "INPUT") active.blur();
+}, true);
+
+/* Mostra "Fine" al posto di "Invio" sulla tastiera del telefono. */
+document.addEventListener("focusin", (e) => {
+  const t = e.target;
+  if (t && t.tagName === "INPUT" && t.type !== "date") t.setAttribute("enterkeyhint", "done");
+});
