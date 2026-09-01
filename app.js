@@ -927,7 +927,7 @@ document.getElementById("trfSubmit").onclick = () => {
 };
 
 /* ───────────────── HISTORY ───────────────── */
-let histTab = "spese", histMonth = monthKey(todayISO());
+let histTab = "spese", histPeriod = "mese", histMonth = monthKey(todayISO()), histYear = String(new Date().getFullYear());
 
 document.querySelectorAll("[data-histtab]").forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -938,29 +938,57 @@ document.querySelectorAll("[data-histtab]").forEach((btn) => {
   });
 });
 
+document.querySelectorAll("[data-histperiod]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("[data-histperiod]").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    histPeriod = btn.dataset.histperiod;
+    renderHistory();
+  });
+});
+
+function histInPeriod(dateStr) {
+  return histPeriod === "anno" ? String(new Date(dateStr).getFullYear()) === histYear : monthKey(dateStr) === histMonth;
+}
+
 function renderHistory() {
-  const all = [...expenses.map((e) => e.date), ...incomes.map((i) => i.date), ...transfers.map((t) => t.date)];
-  let months = Array.from(new Set(all.map(monthKey))).sort().reverse();
+  const allDates = [...expenses.map((e) => e.date), ...incomes.map((i) => i.date), ...transfers.map((t) => t.date)];
+
+  let months = Array.from(new Set(allDates.map(monthKey))).sort().reverse();
   if (months.length === 0) months = [monthKey(todayISO())];
   if (!months.includes(histMonth)) histMonth = months[0];
 
+  let years = Array.from(new Set(allDates.map((d) => String(new Date(d).getFullYear())))).sort().reverse();
+  if (years.length === 0) years = [String(new Date().getFullYear())];
+  if (!years.includes(histYear)) histYear = years[0];
+
   const chipRow = document.getElementById("monthChipRow");
   chipRow.innerHTML = "";
-  months.forEach((m) => {
-    const b = document.createElement("button");
-    b.className = m === histMonth ? "active" : "";
-    b.textContent = monthLabel(m);
-    b.onclick = () => { histMonth = m; renderHistory(); };
-    chipRow.appendChild(b);
-  });
+  if (histPeriod === "anno") {
+    years.forEach((y) => {
+      const b = document.createElement("button");
+      b.className = y === histYear ? "active" : "";
+      b.textContent = y;
+      b.onclick = () => { histYear = y; renderHistory(); };
+      chipRow.appendChild(b);
+    });
+  } else {
+    months.forEach((m) => {
+      const b = document.createElement("button");
+      b.className = m === histMonth ? "active" : "";
+      b.textContent = monthLabel(m);
+      b.onclick = () => { histMonth = m; renderHistory(); };
+      chipRow.appendChild(b);
+    });
+  }
 
-  const list = histTab === "spese" ? expenses.filter((e) => monthKey(e.date) === histMonth)
-    : histTab === "entrate" ? incomes.filter((i) => monthKey(i.date) === histMonth)
-    : transfers.filter((t) => monthKey(t.date) === histMonth);
+  const periodLabel = histPeriod === "anno" ? `anno ${histYear}` : monthLabel(histMonth);
+  const list = (histTab === "spese" ? expenses : histTab === "entrate" ? incomes : transfers)
+    .filter((item) => histInPeriod(item.date));
   const total = list.reduce((s, e) => s + e.amount, 0);
   document.getElementById("histTotalLine").innerHTML = histTab === "giroconti"
-    ? `Totale spostato: <strong style="color:#3A332D">${eur(total)}</strong>`
-    : `Totale ${histTab}: <strong style="color:#3A332D">${eur(total)}</strong>`;
+    ? `Totale spostato — ${periodLabel}: <strong style="color:#3A332D">${eur(total)}</strong>`
+    : `Totale ${histTab} — ${periodLabel}: <strong style="color:#3A332D">${eur(total)}</strong>`;
 
   const listEl = document.getElementById("histList");
   listEl.innerHTML = "";
@@ -1006,17 +1034,100 @@ function renderHistory() {
   });
 }
 
-document.getElementById("exportBtn").onclick = () => {
-  const lines = ["Tipo,Data,Categoria,Importo,Chi/Conto,Nota"];
-  expenses.forEach((e) => lines.push(`Spesa,${e.date},${e.category},${e.amount},${e.user},"${e.note || ""}"`));
-  incomes.forEach((i) => lines.push(`Entrata,${i.date},${i.type},${i.amount},${i.account},"${i.note || ""}"`));
-  transfers.forEach((t) => lines.push(`Giroconto,${t.date},"${t.from} -> ${t.to}",${t.amount},,"${t.note || ""}"`));
-  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = "libro-di-casa.csv"; a.click();
-  URL.revokeObjectURL(url);
-  toast("CSV esportato");
+function buildStatementRows(periodFilter) {
+  const rows = [];
+  expenses.filter((e) => periodFilter(e.date)).forEach((e) => rows.push({
+    date: e.date, tipo: "Spesa",
+    desc: e.category + (e.note ? " · " + e.note : ""),
+    chi: e.account ? `${e.user} · ${e.account}` : e.user,
+    entrata: null, uscita: e.amount, giroconto: null,
+  }));
+  incomes.filter((i) => periodFilter(i.date)).forEach((i) => rows.push({
+    date: i.date, tipo: "Entrata",
+    desc: i.type + (i.note ? " · " + i.note : ""),
+    chi: i.account,
+    entrata: i.amount, uscita: null, giroconto: null,
+  }));
+  transfers.filter((t) => periodFilter(t.date)).forEach((t) => rows.push({
+    date: t.date, tipo: "Giroconto",
+    desc: `${t.from} → ${t.to}` + (t.note ? " · " + t.note : ""),
+    chi: "",
+    entrata: null, uscita: null, giroconto: t.amount,
+  }));
+  rows.sort((a, b) => new Date(a.date) - new Date(b.date) || a.tipo.localeCompare(b.tipo));
+  return rows;
+}
+
+function exportStatementPdf(periodFilter, periodLabel, filenameSuffix) {
+  const rows = buildStatementRows(periodFilter);
+  if (rows.length === 0) { toast("Nessun movimento nel periodo selezionato"); return; }
+  if (typeof window.jspdf === "undefined") { toast("Libreria PDF non caricata: controlla la connessione"); return; }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+
+  const totalIn = rows.reduce((s, r) => s + (r.entrata || 0), 0);
+  const totalOut = rows.reduce((s, r) => s + (r.uscita || 0), 0);
+  const totalTrf = rows.reduce((s, r) => s + (r.giroconto || 0), 0);
+
+  doc.setFont("helvetica", "bold"); doc.setFontSize(16);
+  doc.text("Libro di Casa — Pietro & Marianna", 40, 44);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(11);
+  doc.text(`Estratto conto · ${periodLabel}`, 40, 62);
+  doc.setFontSize(9); doc.setTextColor(140, 130, 115);
+  doc.text(`Generato il ${new Date().toLocaleDateString("it-IT")}`, 40, 76);
+  doc.setTextColor(58, 51, 45);
+
+  const body = rows.map((r) => [
+    new Date(r.date).toLocaleDateString("it-IT"),
+    r.tipo,
+    r.desc,
+    r.chi || "",
+    r.entrata ? eur(r.entrata) : "",
+    r.uscita ? eur(r.uscita) : "",
+    r.giroconto ? eur(r.giroconto) : "",
+  ]);
+
+  doc.autoTable({
+    startY: 90,
+    head: [["Data", "Tipo", "Descrizione", "Chi/Conto", "Entrata", "Uscita", "Giroconto"]],
+    body,
+    styles: { font: "helvetica", fontSize: 8.5, cellPadding: 5, textColor: [58, 51, 45] },
+    headStyles: { fillColor: [58, 51, 45], textColor: 255, fontStyle: "bold" },
+    alternateRowStyles: { fillColor: [251, 243, 236] },
+    columnStyles: {
+      4: { halign: "right", textColor: [124, 148, 115] },
+      5: { halign: "right", textColor: [193, 120, 111] },
+      6: { halign: "right", textColor: [123, 147, 174] },
+    },
+    margin: { left: 40, right: 40 },
+  });
+
+  let y = doc.lastAutoTable.finalY + 26;
+  doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+  doc.text(`Totale entrate: ${eur(totalIn)}`, 40, y);
+  doc.text(`Totale uscite: ${eur(totalOut)}`, 40, y + 16);
+  doc.text(`Saldo netto del periodo: ${eur(totalIn - totalOut)}`, 40, y + 32);
+  y += totalTrf ? 48 : 32;
+  if (totalTrf) { doc.text(`Totale girocontato: ${eur(totalTrf)}`, 40, y); y += 16; }
+
+  y += 12;
+  doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+  doc.text("Saldi conti (istantanea attuale):", 40, y);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+  ACCOUNTS.forEach((acc, i) => doc.text(`${acc}: ${eur(balances[acc])}`, 40, y + 16 * (i + 1)));
+
+  doc.save(`estratto-conto-libro-di-casa-${filenameSuffix}.pdf`);
+  toast("PDF generato");
+}
+
+document.getElementById("pdfBtn").onclick = () => {
+  const periodFilter = histPeriod === "anno"
+    ? (d) => String(new Date(d).getFullYear()) === histYear
+    : (d) => monthKey(d) === histMonth;
+  const periodLabel = histPeriod === "anno" ? `Anno ${histYear}` : monthLabel(histMonth);
+  const suffix = histPeriod === "anno" ? histYear : histMonth;
+  exportStatementPdf(periodFilter, periodLabel, suffix);
 };
 
 /* ───────────────── DASHBOARD ───────────────── */
@@ -1159,43 +1270,102 @@ function renderDeadlines() {
 
 /* ───────────────── STATS ───────────────── */
 let pieChart = null, barChart = null;
-function renderStats() {
-  const thisMonth = monthKey(todayISO());
-  const monthExpenses = expenses.filter((e) => monthKey(e.date) === thisMonth);
-  const content = document.getElementById("statsContent");
+let statsPeriod = "mese", statsMonth = monthKey(todayISO()), statsYear = String(new Date().getFullYear());
 
-  if (monthExpenses.length === 0) {
-    content.innerHTML = `<div class="empty" style="padding:40px 0;text-align:center">Nessuna spesa questo mese: i grafici appariranno appena aggiungi qualcosa.</div>`;
-    return;
+function renderStats() {
+  const allDates = [...expenses.map((e) => e.date), ...incomes.map((i) => i.date)];
+
+  let months = Array.from(new Set(allDates.map(monthKey))).sort().reverse();
+  if (months.length === 0) months = [monthKey(todayISO())];
+  if (!months.includes(statsMonth)) statsMonth = months[0];
+
+  let years = Array.from(new Set(allDates.map((d) => String(new Date(d).getFullYear())))).sort().reverse();
+  if (years.length === 0) years = [String(new Date().getFullYear())];
+  if (!years.includes(statsYear)) statsYear = years[0];
+
+  const periodExpenses = statsPeriod === "anno"
+    ? expenses.filter((e) => String(new Date(e.date).getFullYear()) === statsYear)
+    : expenses.filter((e) => monthKey(e.date) === statsMonth);
+  const periodLabel = statsPeriod === "anno" ? `anno ${statsYear}` : monthLabel(statsMonth);
+
+  const content = document.getElementById("statsContent");
+  const pdfBtn = document.getElementById("statsPdfBtn");
+
+  const toggleHtml = `
+    <div class="row-btns" id="statsPeriodRow" style="margin-bottom:12px">
+      <button id="statsModeMese" class="${statsPeriod === "mese" ? "active" : ""}">Mese</button>
+      <button id="statsModeAnno" class="${statsPeriod === "anno" ? "active" : ""}">Anno</button>
+    </div>
+    <div class="chip-row" id="statsChipRow"></div>`;
+
+  function wireControls() {
+    document.getElementById("statsModeMese").onclick = () => { statsPeriod = "mese"; renderStats(); };
+    document.getElementById("statsModeAnno").onclick = () => { statsPeriod = "anno"; renderStats(); };
+    const chipRow = document.getElementById("statsChipRow");
+    chipRow.innerHTML = "";
+    if (statsPeriod === "anno") {
+      years.forEach((y) => {
+        const b = document.createElement("button");
+        b.className = y === statsYear ? "active" : "";
+        b.textContent = y;
+        b.onclick = () => { statsYear = y; renderStats(); };
+        chipRow.appendChild(b);
+      });
+    } else {
+      months.forEach((m) => {
+        const b = document.createElement("button");
+        b.className = m === statsMonth ? "active" : "";
+        b.textContent = monthLabel(m);
+        b.onclick = () => { statsMonth = m; renderStats(); };
+        chipRow.appendChild(b);
+      });
+    }
   }
 
+  if (periodExpenses.length === 0) {
+    content.innerHTML = toggleHtml + `<div class="empty" style="padding:40px 0;text-align:center">Nessuna spesa in questo periodo: i grafici appariranno appena aggiungi qualcosa.</div>`;
+    wireControls();
+    pdfBtn.style.display = "none";
+    return;
+  }
+  pdfBtn.style.display = "block";
+
   const byCategory = EXPENSE_CATEGORIES.map((c) => ({
-    name: c.name, value: monthExpenses.filter((e) => e.category === c.name).reduce((s, e) => s + e.amount, 0), color: c.color,
+    name: c.name, value: periodExpenses.filter((e) => e.category === c.name).reduce((s, e) => s + e.amount, 0), color: c.color,
   })).filter((c) => c.value > 0);
 
   const byUser = { Pietro: 0, Marianna: 0 };
-  monthExpenses.forEach((e) => {
+  periodExpenses.forEach((e) => {
     if (e.user === "Entrambi") { byUser.Pietro += e.amount / 2; byUser.Marianna += e.amount / 2; }
     else if (byUser[e.user] !== undefined) byUser[e.user] += e.amount;
   });
 
-  const allKeys = Array.from(new Set([...expenses.map((e) => e.date), ...incomes.map((i) => i.date)].map(monthKey))).sort().slice(-6);
-  const trendLabels = allKeys.map((k) => monthLabel(k).split(" ")[0]);
-  const trendIn = allKeys.map((k) => incomes.filter((i) => monthKey(i.date) === k).reduce((s, i) => s + i.amount, 0));
-  const trendOut = allKeys.map((k) => expenses.filter((e) => monthKey(e.date) === k).reduce((s, e) => s + e.amount, 0));
+  let trendLabels, trendIn, trendOut;
+  if (statsPeriod === "anno") {
+    const keys = MONTHS.map((_, idx) => `${statsYear}-${idx}`);
+    trendLabels = MONTHS;
+    trendIn = keys.map((k) => incomes.filter((i) => monthKey(i.date) === k).reduce((s, i) => s + i.amount, 0));
+    trendOut = keys.map((k) => expenses.filter((e) => monthKey(e.date) === k).reduce((s, e) => s + e.amount, 0));
+  } else {
+    const allKeys = Array.from(new Set(allDates.map(monthKey))).sort().slice(-6);
+    trendLabels = allKeys.map((k) => monthLabel(k).split(" ")[0]);
+    trendIn = allKeys.map((k) => incomes.filter((i) => monthKey(i.date) === k).reduce((s, i) => s + i.amount, 0));
+    trendOut = allKeys.map((k) => expenses.filter((e) => monthKey(e.date) === k).reduce((s, e) => s + e.amount, 0));
+  }
 
-  content.innerHTML = `
-    <div class="section-title">Ripartizione per categoria — ${monthLabel(thisMonth)}</div>
+  content.innerHTML = toggleHtml + `
+    <div class="section-title">Ripartizione per categoria — ${periodLabel}</div>
     <div class="chart-wrap"><canvas id="pieCanvas"></canvas></div>
     <div class="legend">${byCategory.map((c) => `<div class="legend-item"><span class="legend-dot" style="background:${c.color}"></span>${c.name} ${eur(c.value)}</div>`).join("")}</div>
-    <div class="section-title">Pietro vs Marianna (quota 50/50)</div>
+    <div class="section-title">Pietro vs Marianna (quota 50/50) — ${periodLabel}</div>
     <div class="stats-cards">
       <div class="stats-card"><div class="name">Pietro</div><div class="val">${eur(byUser.Pietro)}</div></div>
       <div class="stats-card"><div class="name">Marianna</div><div class="val">${eur(byUser.Marianna)}</div></div>
     </div>
-    <div class="section-title">Andamento entrate / uscite</div>
+    <div class="section-title">Andamento entrate / uscite${statsPeriod === "anno" ? " — " + statsYear : ""}</div>
     <div class="chart-wrap2"><canvas id="barCanvas"></canvas></div>
   `;
+  wireControls();
 
   if (pieChart) pieChart.destroy();
   if (barChart) barChart.destroy();
@@ -1214,6 +1384,39 @@ function renderStats() {
     ]},
     options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => ctx.dataset.label + ": " + eur(ctx.parsed.y) } } }, scales: { x: { grid: { display: false } }, y: { grid: { color: "#EFE3D8" } } } },
   });
+
+  pdfBtn.onclick = () => {
+    if (typeof window.jspdf === "undefined") { toast("Libreria PDF non caricata: controlla la connessione"); return; }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    doc.setFont("helvetica", "bold"); doc.setFontSize(16);
+    doc.text("Libro di Casa — Pietro & Marianna", 40, 44);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(11);
+    doc.text(`Riepilogo grafici · ${periodLabel}`, 40, 62);
+    doc.setFontSize(9); doc.setTextColor(140, 130, 115);
+    doc.text(`Generato il ${new Date().toLocaleDateString("it-IT")}`, 40, 76);
+    doc.setTextColor(58, 51, 45);
+
+    const pieImg = document.getElementById("pieCanvas").toDataURL("image/png", 1.0);
+    doc.addImage(pieImg, "PNG", 40, 96, 220, 220);
+
+    doc.setFontSize(11); doc.setFont("helvetica", "bold");
+    doc.text("Per categoria:", 300, 106);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
+    byCategory.forEach((c, i) => doc.text(`${c.name}: ${eur(c.value)}`, 300, 122 + i * 15));
+
+    let y2 = 96 + 220 + 30;
+    doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+    doc.text("Pietro vs Marianna (quota 50/50):", 40, y2);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Pietro: ${eur(byUser.Pietro)}    Marianna: ${eur(byUser.Marianna)}`, 40, y2 + 16);
+
+    const barImg = document.getElementById("barCanvas").toDataURL("image/png", 1.0);
+    doc.addImage(barImg, "PNG", 40, y2 + 34, 500, 180);
+
+    doc.save(`riepilogo-grafici-libro-di-casa-${statsPeriod === "anno" ? statsYear : statsMonth}.pdf`);
+    toast("PDF generato");
+  };
 }
 
 /* ───────────────── MAIN RENDER ───────────────── */

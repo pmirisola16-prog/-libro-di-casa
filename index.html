@@ -12,6 +12,8 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="icon" href="icons/icon-192.png">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css">
 <!-- Firebase (compat SDK, semplice da usare senza bundler) -->
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
@@ -306,15 +308,20 @@ button{cursor:pointer;border:none;background:none}
       <button data-histtab="entrate">Entrate</button>
       <button data-histtab="giroconti">Giroconti</button>
     </div>
+    <div class="row-btns" id="histPeriodRow" style="margin-bottom:12px">
+      <button data-histperiod="mese" class="active">Mese</button>
+      <button data-histperiod="anno">Anno</button>
+    </div>
     <div class="chip-row" id="monthChipRow"></div>
     <div class="total-line" id="histTotalLine"></div>
     <div id="histList"></div>
-    <button class="export-btn" id="exportBtn"><i class="ti ti-download" style="font-size:14px;vertical-align:-2px;margin-right:4px"></i>Esporta CSV completo</button>
+    <button class="export-btn" id="pdfBtn"><i class="ti ti-file-type-pdf" style="font-size:14px;vertical-align:-2px;margin-right:4px"></i>Esporta PDF estratto conto</button>
   </div>
 
   <!-- STATS -->
   <div class="page" id="page-stats">
     <div id="statsContent"></div>
+    <button class="export-btn" id="statsPdfBtn" style="display:none"><i class="ti ti-file-type-pdf" style="font-size:14px;vertical-align:-2px;margin-right:4px"></i>Esporta PDF riepilogo</button>
   </div>
 
   <!-- SCADENZE -->
