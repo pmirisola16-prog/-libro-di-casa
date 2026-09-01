@@ -984,7 +984,8 @@ function renderHistory() {
 
   const periodLabel = histPeriod === "anno" ? `anno ${histYear}` : monthLabel(histMonth);
   const list = (histTab === "spese" ? expenses : histTab === "entrate" ? incomes : transfers)
-    .filter((item) => histInPeriod(item.date));
+    .filter((item) => histInPeriod(item.date))
+    .sort((a, b) => new Date(b.date) - new Date(a.date) || String(b.id).localeCompare(String(a.id)));
   const total = list.reduce((s, e) => s + e.amount, 0);
   document.getElementById("histTotalLine").innerHTML = histTab === "giroconti"
     ? `Totale spostato — ${periodLabel}: <strong style="color:#3A332D">${eur(total)}</strong>`
