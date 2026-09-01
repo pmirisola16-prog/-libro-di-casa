@@ -63,6 +63,12 @@ function daysUntil(dateStr) {
    ═══════════════════════════════════════════════════════════════ */
 const ALLOWED_EMAILS = ["pmirisola16@gmail.com", "mariannaguarnieri20@gmail.com"];
 
+function hexToRgb(hex) {
+  const clean = hex.replace("#", "");
+  const bigint = parseInt(clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean, 16);
+  return [(bigint >> 16) & 255, (bigint >> 8) & 255, bigint & 255];
+}
+
 function eur(n) {
   n = Number(n || 0);
   const neg = n < 0;
@@ -1404,7 +1410,14 @@ function renderStats() {
     doc.setFontSize(11); doc.setFont("helvetica", "bold");
     doc.text("Per categoria:", 300, 106);
     doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
-    byCategory.forEach((c, i) => doc.text(`${c.name}: ${eur(c.value)}`, 300, 122 + i * 15));
+    byCategory.forEach((c, i) => {
+      const rowY = 122 + i * 16;
+      const [r, g, b] = hexToRgb(c.color);
+      doc.setFillColor(r, g, b);
+      doc.rect(300, rowY - 7, 8, 8, "F");
+      doc.setTextColor(58, 51, 45);
+      doc.text(`${c.name}: ${eur(c.value)}`, 313, rowY);
+    });
 
     let y2 = 96 + 220 + 30;
     doc.setFont("helvetica", "bold"); doc.setFontSize(11);
