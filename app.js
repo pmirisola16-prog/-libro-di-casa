@@ -46,11 +46,25 @@ const INCOME_TYPES = ["Stipendio Pietro", "Stipendio Marianna", "Entrata seconda
 const USERS = ["Pietro", "Marianna", "Entrambi"];
 let ACCOUNTS = ["Intesa", "BP", "Revolut", "BCC"];
 const MONTHS = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
+/* Somma mesi a una data ISO tenendo il giorno del mese quando possibile:
+   31 gennaio + 1 mese = 28/29 febbraio, non 3 marzo. */
 function addMonthsISO(dateStr, months) {
-  const d = new Date(dateStr);
-  d.setMonth(d.getMonth() + months);
-  return d.toISOString().slice(0, 10);
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const t = new Date(y, m - 1 + months, 1);
+  const lastDay = new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate();
+  t.setDate(Math.min(d, lastDay));
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
 }
+const FREQUENCIES = [
+  { key: "1m", label: "Mensile", months: 1 },
+  { key: "2m", label: "Bimestrale", months: 2 },
+  { key: "3m", label: "Trimestrale", months: 3 },
+  { key: "6m", label: "Semestrale", months: 6 },
+  { key: "12m", label: "Annuale", months: 12 },
+];
+function freqLabel(key) { const f = FREQUENCIES.find((x) => x.key === key); return f ? f.label.toLowerCase() : "mensile"; }
+function freqMonths(key) { const f = FREQUENCIES.find((x) => x.key === key); return f ? f.months : 1; }
 function daysUntil(dateStr) {
   const today = new Date(todayISO());
   const due = new Date(dateStr);
@@ -105,6 +119,7 @@ let expenses = [];
 let incomes = [];
 let transfers = [];
 let deadlines = [];
+let recurrings = [];
 let balances = { Intesa: 0, BP: 0, Revolut: 0, BCC: 0 };
 let db = null;
 let firebaseReady = false;
@@ -199,6 +214,11 @@ function attachListeners() {
     deadlines = doc.exists ? (doc.data().items || []) : [];
     render();
   }, (err) => showError("Errore lettura scadenze: " + err.message));
+
+  db.collection("ledger").doc("recurring").onSnapshot((doc) => {
+    recurrings = doc.exists ? (doc.data().items || []) : [];
+    render();
+  }, (err) => showError("Errore lettura spese ricorrenti: " + err.message));
 
   db.collection("ledger").doc("categories").onSnapshot((doc) => {
     if (doc.exists && Array.isArray(doc.data().list) && doc.data().list.length) {
@@ -478,6 +498,90 @@ function completeDeadline(id) {
   render();
 }
 
+/* ───────────────── SPESE RICORRENTI ───────────────── */
+function addRecurring(entry) {
+  recurrings = [{ ...entry, id: uid() }, ...recurrings];
+  persist("recurring", { items: recurrings });
+  render();
+}
+
+function deleteRecurring(id) {
+  const r = recurrings.find((x) => x.id === id);
+  if (!r) return;
+  if (!confirm(`Eliminare la spesa ricorrente "${r.note || r.category}"? Le spese già registrate restano nello storico.`)) return;
+  recurrings = recurrings.filter((x) => x.id !== id);
+  persist("recurring", { items: recurrings });
+  render();
+  toast("Spesa ricorrente eliminata");
+}
+
+/* Registra la rata in scadenza come spesa vera e sposta avanti il prossimo addebito */
+function confirmRecurring(id) {
+  const r = recurrings.find((x) => x.id === id);
+  if (!r) return;
+  const dueDate = r.nextDate;
+  recurrings = recurrings.map((x) => (x.id === id ? { ...x, nextDate: addMonthsISO(x.nextDate, freqMonths(x.frequency)) } : x));
+  persist("recurring", { items: recurrings });
+  addExpense({
+    amount: Number(r.amount), category: r.category, user: r.user,
+    account: r.account, note: r.note || "", date: dueDate,
+  });
+  toast(`${r.note || r.category} · ${eur(r.amount)} registrata`);
+}
+
+/* Salta questa rata senza registrarla (es. mese non pagato) */
+function skipRecurring(id) {
+  const r = recurrings.find((x) => x.id === id);
+  if (!r) return;
+  if (!confirm(`Saltare questa rata di "${r.note || r.category}" senza registrarla?`)) return;
+  const next = addMonthsISO(r.nextDate, freqMonths(r.frequency));
+  recurrings = recurrings.map((x) => (x.id === id ? { ...x, nextDate: next } : x));
+  persist("recurring", { items: recurrings });
+  render();
+  toast(`Rinviata al ${new Date(next).toLocaleDateString("it-IT")}`);
+}
+
+/* ───────────────── RINVIO SCADENZE ───────────────── */
+let postponeId = null;
+
+function closePostpone() {
+  document.getElementById("postponeOverlay").style.display = "none";
+  postponeId = null;
+}
+
+function openPostpone(id) {
+  const item = deadlines.find((d) => d.id === id);
+  if (!item) return;
+  postponeId = id;
+  const card = document.getElementById("postponeModalCard");
+  card.innerHTML = `
+    <div class="modal-title">Rinvia scadenza<button class="modal-close" id="postCloseBtn"><i class="ti ti-x"></i></button></div>
+    <div class="field">
+      <div class="field-label">${item.title}</div>
+      <div style="font-size:12px;color:#9C8F84;margin-bottom:12px">Attualmente prevista il ${new Date(item.dueDate).toLocaleDateString("it-IT")}</div>
+    </div>
+    <div class="field">
+      <div class="field-label">Nuova data</div>
+      <input class="input" type="date" id="postDate" value="${item.dueDate}">
+    </div>
+    <button class="submit-btn" style="background:#7B93AE" id="postSaveBtn">Sposta a questa data</button>`;
+  document.getElementById("postponeOverlay").style.display = "flex";
+  document.getElementById("postCloseBtn").onclick = closePostpone;
+  document.getElementById("postSaveBtn").onclick = () => {
+    const val = document.getElementById("postDate").value;
+    if (!val) { toast("Scegli una data"); return; }
+    deadlines = deadlines.map((d) => (d.id === postponeId ? { ...d, dueDate: val } : d));
+    persist("deadlines", { items: deadlines });
+    closePostpone();
+    render();
+    toast(`Rinviata al ${new Date(val).toLocaleDateString("it-IT")}`);
+  };
+}
+
+document.getElementById("postponeOverlay").addEventListener("click", (ev) => {
+  if (ev.target.id === "postponeOverlay") closePostpone();
+});
+
 /* ───────────────── EDIT MODAL ───────────────── */
 let editState = null; // { kind: 'spesa'|'entrata'|'giroconto', id, data }
 
@@ -746,6 +850,7 @@ document.querySelectorAll("[data-addtab]").forEach((btn) => {
     document.getElementById("add-entrata").style.display = btn.dataset.addtab === "entrata" ? "block" : "none";
     document.getElementById("add-giroconto").style.display = btn.dataset.addtab === "giroconto" ? "block" : "none";
     document.getElementById("add-conto").style.display = btn.dataset.addtab === "conto" ? "block" : "none";
+    document.getElementById("add-ricorrente").style.display = btn.dataset.addtab === "ricorrente" ? "block" : "none";
   });
 });
 
@@ -753,6 +858,7 @@ document.querySelectorAll("[data-addtab]").forEach((btn) => {
 let selCategory = "Spesa", selUser = "Entrambi", selIncomeType = INCOME_TYPES[0], selIncomeAccount = ACCOUNTS[0];
 let selExpAccount = ACCOUNTS[0];
 let selTrfFrom = ACCOUNTS[0], selTrfTo = ACCOUNTS[1];
+let selRecCategory = "Affitto/Mutuo", selRecUser = "Entrambi", selRecAccount = ACCOUNTS[0], selRecFreq = "1m";
 
 function buildAddForm() {
   const catGrid = document.getElementById("expCategoryGrid");
@@ -836,6 +942,76 @@ function buildAddForm() {
     trfToGrid.appendChild(b);
   });
 
+  /* — pannello spese ricorrenti — */
+  const recCatGrid = document.getElementById("recCategoryGrid");
+  recCatGrid.innerHTML = "";
+  if (!EXPENSE_CATEGORIES.some((c) => c.name === selRecCategory)) selRecCategory = EXPENSE_CATEGORIES[0] ? EXPENSE_CATEGORIES[0].name : "";
+  EXPENSE_CATEGORIES.forEach((c) => {
+    const b = document.createElement("button");
+    b.className = "chip" + (c.name === selRecCategory ? " active" : "");
+    if (c.name === selRecCategory) { b.style.background = c.color; b.style.color = "#fff"; b.style.borderColor = c.color; }
+    b.innerHTML = `<span class="ic">${catIconHtml(c.icon)}</span>${c.name}`;
+    b.onclick = () => { selRecCategory = c.name; buildAddForm(); };
+    recCatGrid.appendChild(b);
+  });
+
+  const recAccGrid = document.getElementById("recAccountGrid");
+  recAccGrid.innerHTML = "";
+  ACCOUNTS.forEach((a) => {
+    const b = document.createElement("button");
+    b.className = a === selRecAccount ? "active" : "";
+    b.textContent = a;
+    b.onclick = () => { selRecAccount = a; buildAddForm(); };
+    recAccGrid.appendChild(b);
+  });
+
+  const recUserRow = document.getElementById("recUserRow");
+  recUserRow.innerHTML = "";
+  USERS.forEach((u) => {
+    const b = document.createElement("button");
+    b.className = u === selRecUser ? "active" : "";
+    b.textContent = u;
+    b.onclick = () => { selRecUser = u; buildAddForm(); };
+    recUserRow.appendChild(b);
+  });
+
+  const recFreqGrid = document.getElementById("recFreqGrid");
+  recFreqGrid.innerHTML = "";
+  FREQUENCIES.forEach((f) => {
+    const b = document.createElement("button");
+    b.className = f.key === selRecFreq ? "active" : "";
+    b.textContent = f.label;
+    b.onclick = () => { selRecFreq = f.key; buildAddForm(); };
+    recFreqGrid.appendChild(b);
+  });
+
+  const recListEl = document.getElementById("recList");
+  recListEl.innerHTML = "";
+  if (recurrings.length === 0) {
+    recListEl.innerHTML = `<div class="empty">Nessuna spesa ricorrente — aggiungine una qui sotto.</div>`;
+  } else {
+    [...recurrings].sort((a, b) => a.nextDate.localeCompare(b.nextDate)).forEach((r) => {
+      const cat = EXPENSE_CATEGORIES.find((c) => c.name === r.category);
+      const row = document.createElement("div");
+      row.className = "movement";
+      row.style.cursor = "default";
+      row.innerHTML = `
+        <div class="movement-left">
+          ${iconWrap(cat ? cat.icon : ICON_OTHER.icon, cat ? cat.color : ICON_OTHER.color)}
+          <div>
+            <div class="movement-cat">${r.note || r.category}</div>
+            <div class="movement-meta">${freqLabel(r.frequency)} · ${r.account} · prossima ${new Date(r.nextDate).toLocaleDateString("it-IT")}</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="mono amount-out">${eur(r.amount)}</div>
+          <button class="del-btn"><i class="ti ti-x"></i></button>
+        </div>`;
+      row.querySelector(".del-btn").onclick = () => deleteRecurring(r.id);
+      recListEl.appendChild(row);
+    });
+  }
+
   const balForm = document.getElementById("add-conto");
   balForm.innerHTML = "";
   ACCOUNTS.forEach((acc) => {
@@ -882,6 +1058,7 @@ document.getElementById("expDate").value = todayISO();
 document.getElementById("incDate").value = todayISO();
 document.getElementById("trfDate").value = todayISO();
 document.getElementById("dlDate").value = todayISO();
+document.getElementById("recDate").value = todayISO();
 
 let selDlCategory = DEADLINE_CATEGORIES[0].name;
 let selDlRecurrence = "none";
@@ -960,6 +1137,21 @@ function wireAmountHint(inputId, hintId) {
 wireAmountHint("expAmount", "expAmountHint");
 wireAmountHint("incAmount", "incAmountHint");
 wireAmountHint("trfAmount", "trfAmountHint");
+wireAmountHint("recAmount", "recAmountHint");
+
+document.getElementById("recSubmit").onclick = () => {
+  const val = parseAmount(document.getElementById("recAmount").value);
+  if (!val || val <= 0) { toast("Inserisci un importo valido"); return; }
+  const dateVal = document.getElementById("recDate").value || todayISO();
+  addRecurring({
+    amount: val, category: selRecCategory, user: selRecUser, account: selRecAccount,
+    note: document.getElementById("recNote").value.trim(), frequency: selRecFreq, nextDate: dateVal,
+  });
+  toast("Spesa ricorrente aggiunta");
+  document.getElementById("recAmount").value = "";
+  const rh = document.getElementById("recAmountHint"); if (rh) { rh.textContent = ""; rh.className = "amount-hint"; }
+  document.getElementById("recNote").value = "";
+};
 
 document.getElementById("expSubmit").onclick = () => {
   const raw = document.getElementById("expAmount").value;
@@ -1230,6 +1422,41 @@ function renderDashboard() {
   document.getElementById("dashTotalLiquid").textContent = eur(totalLiquid);
   document.getElementById("dashLiquidLabel").textContent = "Dettaglio conti";
 
+  /* Promemoria spese ricorrenti scadute o in scadenza oggi */
+  const today = todayISO();
+  const duePending = recurrings
+    .filter((r) => r.nextDate <= today)
+    .sort((a, b) => a.nextDate.localeCompare(b.nextDate));
+  const recWrap = document.getElementById("dashRecurringWrap");
+  const recEl = document.getElementById("dashRecurring");
+  if (duePending.length === 0) {
+    recWrap.style.display = "none";
+  } else {
+    recWrap.style.display = "block";
+    recEl.innerHTML = "";
+    duePending.forEach((r) => {
+      const cat = EXPENSE_CATEGORIES.find((c) => c.name === r.category);
+      const late = daysUntil(r.nextDate);
+      const row = document.createElement("div");
+      row.className = "dash-deadline";
+      row.innerHTML = `
+        <div class="movement-left">
+          ${iconWrap(cat ? cat.icon : ICON_OTHER.icon, cat ? cat.color : ICON_OTHER.color)}
+          <div>
+            <div class="movement-cat">${r.note || r.category}</div>
+            <div class="movement-meta">${eur(r.amount)} · ${r.account} · ${late === 0 ? "oggi" : `da ${Math.abs(late)} giorni`}</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <button class="rec-do"><i class="ti ti-check"></i>Registra</button>
+          <button class="rec-skip"><i class="ti ti-player-skip-forward"></i></button>
+        </div>`;
+      row.querySelector(".rec-do").onclick = () => confirmRecurring(r.id);
+      row.querySelector(".rec-skip").onclick = () => skipRecurring(r.id);
+      recEl.appendChild(row);
+    });
+  }
+
   const urgent = deadlines
     .map((d) => ({ ...d, days: daysUntil(d.dueDate) }))
     .filter((d) => d.days <= 30)
@@ -1333,15 +1560,17 @@ function renderDeadlines() {
         ${iconWrap(cat ? cat.icon : ICON_OTHER.icon, cat ? cat.color : ICON_OTHER.color)}
         <div>
           <div class="movement-cat">${item.title}</div>
-          <div class="movement-meta">${new Date(item.dueDate).toLocaleDateString("it-IT")}${item.note ? " · " + item.note : ""}${item.recurrence !== "none" ? " · si ripete" : ""}</div>
+          <div class="movement-meta"><span style="color:${dlColor(days)};font-weight:600">${dlLabel(days)}</span> · ${new Date(item.dueDate).toLocaleDateString("it-IT")}${item.note ? " · " + item.note : ""}${item.recurrence !== "none" ? " · si ripete" : ""}</div>
         </div>
       </div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <span class="dl-days mono" style="color:${dlColor(days)}">${dlLabel(days)}</span>
-        <button class="dl-done" data-id="${item.id}"><i class="ti ti-check"></i></button>
+      <div style="display:flex;align-items:center;gap:6px">
+        <button class="dl-done" title="Rinvia"><i class="ti ti-calendar-event"></i></button>
+        <button class="dl-done"><i class="ti ti-check"></i></button>
         <button class="del-btn" data-id="${item.id}"><i class="ti ti-x"></i></button>
       </div>`;
-    row.querySelector(".dl-done").onclick = () => completeDeadline(item.id);
+    const btns = row.querySelectorAll(".dl-done");
+    btns[0].onclick = () => openPostpone(item.id);
+    btns[1].onclick = () => completeDeadline(item.id);
     row.querySelector(".del-btn").onclick = () => deleteDeadline(item.id);
     listEl.appendChild(row);
   });

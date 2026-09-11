@@ -77,8 +77,15 @@ button{cursor:pointer;border:none;background:none}
 
 /* tabs */
 .tabbar{display:flex;gap:6px;margin-bottom:20px}
-.tabbar button{flex:1;padding:9px 0;border-radius:10px;font-size:13px;font-weight:500;background:#fff;color:#3A332D;border:1px solid #EFE3D8}
+.tabbar button{flex:1;padding:9px 2px;border-radius:10px;font-size:12px;font-weight:500;background:#fff;color:#3A332D;border:1px solid #EFE3D8;white-space:nowrap}
 .tabbar button.active{background:#3A332D;color:#FBF3EC}
+@media (max-width:400px){.tabbar{gap:4px}.tabbar button{font-size:11px;padding:9px 1px}}
+.freq-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.freq-grid button{padding:10px 2px;border-radius:10px;font-size:12px;font-weight:500;background:#fff;color:#3A332D;border:1px solid #EFE3D8}
+.freq-grid button.active{background:#8C6E5E;color:#fff;border-color:#8C6E5E}
+.rec-do{background:#7c9473;color:#fff;border-radius:8px;font-size:11px;font-weight:600;padding:6px 10px;white-space:nowrap}
+.rec-do i{font-size:13px;vertical-align:-2px;margin-right:2px}
+.rec-skip{background:#fff;color:#B0A296;border:1px solid #EFE3D8;border-radius:8px;font-size:11px;padding:6px 8px}
 
 /* forms */
 .field{margin-bottom:14px}
@@ -197,6 +204,10 @@ button{cursor:pointer;border:none;background:none}
       <div class="eyebrow" style="color:#9C8F84">Totale sui conti</div>
       <div class="total-val" id="dashTotalLiquid">€0,00</div>
     </div>
+    <div id="dashRecurringWrap" style="display:none">
+      <div class="section-title">Spese ricorrenti da registrare</div>
+      <div id="dashRecurring"></div>
+    </div>
     <div id="dashDeadlinesWrap" style="display:none">
       <div class="section-title">Scadenze in arrivo</div>
       <div id="dashDeadlines"></div>
@@ -215,6 +226,7 @@ button{cursor:pointer;border:none;background:none}
       <button data-addtab="entrata">Entrata</button>
       <button data-addtab="giroconto">Giroconto</button>
       <button data-addtab="conto">Conti</button>
+      <button data-addtab="ricorrente">Ricorrenti</button>
     </div>
 
     <div id="add-spesa">
@@ -303,6 +315,41 @@ button{cursor:pointer;border:none;background:none}
     </div>
 
     <div id="add-conto" style="display:none"></div>
+
+    <div id="add-ricorrente" style="display:none">
+      <div class="section-title">Spese ricorrenti attive</div>
+      <div id="recList"></div>
+      <div class="section-title" style="margin-top:24px">Aggiungi spesa ricorrente</div>
+      <div class="field">
+        <div class="field-label">Importo (€)</div>
+        <input class="input" id="recAmount" inputmode="decimal" placeholder="0,00"><div class="amount-hint" id="recAmountHint"></div>
+      </div>
+      <div class="field">
+        <div class="field-label">Categoria</div>
+        <div class="chip-grid" id="recCategoryGrid"></div>
+      </div>
+      <div class="field">
+        <div class="field-label">Pagato con</div>
+        <div class="acc-grid4" id="recAccountGrid"></div>
+      </div>
+      <div class="field">
+        <div class="field-label">Chi paga</div>
+        <div class="row-btns" id="recUserRow"></div>
+      </div>
+      <div class="field">
+        <div class="field-label">Ogni quanto</div>
+        <div class="freq-grid" id="recFreqGrid"></div>
+      </div>
+      <div class="field">
+        <div class="field-label">Nome / nota (es. Mutuo casa)</div>
+        <input class="input" id="recNote" placeholder="es. Mutuo casa">
+      </div>
+      <div class="field">
+        <div class="field-label">Primo addebito</div>
+        <input class="input" type="date" id="recDate">
+      </div>
+      <button class="submit-btn" style="background:#8C6E5E" id="recSubmit">Aggiungi spesa ricorrente</button>
+    </div>
   </div>
 
   <!-- HISTORY -->
@@ -372,6 +419,10 @@ button{cursor:pointer;border:none;background:none}
 
   <div class="modal-overlay" id="catOverlay" style="display:none">
     <div class="modal-card" id="catModalCard"></div>
+  </div>
+
+  <div class="modal-overlay" id="postponeOverlay" style="display:none">
+    <div class="modal-card" id="postponeModalCard"></div>
   </div>
 </div>
 
