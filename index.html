@@ -110,7 +110,11 @@ button{cursor:pointer;border:none;background:none}
 /* stats */
 .chart-wrap{height:220px;margin-bottom:8px}
 .legend{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:24px}
-.legend-item{display:flex;align-items:center;gap:5px;font-size:11px;color:#9C8F84}
+.legend-item{display:flex;align-items:center;gap:5px;font-size:11px;color:#9C8F84;cursor:pointer;background:#fff;border:1px solid #EFE3D8;border-radius:999px;padding:5px 10px}
+.legend-item:active{background:#F5EBE1}
+.cat-detail-head{background:#fff;border:1px solid #EFE3D8;border-radius:14px;padding:14px 16px;margin-bottom:14px}
+.cat-detail-head .val{font-family:'Manrope',sans-serif;font-size:24px;font-weight:700;margin-top:4px}
+.cat-detail-hint{font-size:11px;color:#B0A296;margin-bottom:10px}
 .legend-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
 .stats-cards{display:flex;gap:10px;margin-bottom:24px}
 .stats-card{flex:1;background:#fff;border:1px solid #EFE3D8;border-radius:12px;padding:14px}
@@ -364,6 +368,10 @@ button{cursor:pointer;border:none;background:none}
 
   <div class="modal-overlay" id="editOverlay" style="display:none">
     <div class="modal-card" id="editModalCard"></div>
+  </div>
+
+  <div class="modal-overlay" id="catOverlay" style="display:none">
+    <div class="modal-card" id="catModalCard"></div>
   </div>
 </div>
 

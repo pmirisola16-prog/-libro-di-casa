@@ -625,6 +625,78 @@ function renderEditModal() {
   };
 }
 
+/* ───────────────── DETTAGLIO CATEGORIA (dai grafici) ───────────────── */
+let catDetailName = null;
+
+function closeCatDetail() {
+  document.getElementById("catOverlay").style.display = "none";
+  catDetailName = null;
+}
+
+function openCatDetail(name) {
+  catDetailName = name;
+  renderCatDetail();
+  document.getElementById("catOverlay").style.display = "flex";
+}
+
+function renderCatDetail() {
+  if (!catDetailName) return;
+  const card = document.getElementById("catModalCard");
+  const name = catDetailName;
+  const cat = EXPENSE_CATEGORIES.find((c) => c.name === name);
+  const color = cat ? cat.color : ICON_OTHER.color;
+  const icon = cat ? cat.icon : ICON_OTHER.icon;
+
+  const inPeriod = statsPeriod === "anno"
+    ? (d) => String(new Date(d).getFullYear()) === statsYear
+    : (d) => monthKey(d) === statsMonth;
+  const periodLabel = statsPeriod === "anno" ? `Anno ${statsYear}` : monthLabel(statsMonth);
+
+  const list = expenses
+    .filter((e) => e.category === name && inPeriod(e.date))
+    .sort((a, b) => new Date(b.date) - new Date(a.date) || String(b.id).localeCompare(String(a.id)));
+  const total = list.reduce((s, e) => s + e.amount, 0);
+
+  let html = `<div class="modal-title"><span style="display:flex;align-items:center;gap:9px">${iconWrap(icon, color)}${name}</span><button class="modal-close" id="catCloseBtn"><i class="ti ti-x"></i></button></div>`;
+  html += `<div class="cat-detail-head">
+      <div class="eyebrow" style="color:#9C8F84">${periodLabel} · ${list.length} ${list.length === 1 ? "movimento" : "movimenti"}</div>
+      <div class="val" style="color:${color}">${eur(total)}</div>
+    </div>`;
+
+  if (list.length === 0) {
+    html += `<div class="empty">Nessuna spesa di questa categoria nel periodo.</div><div style="height:16px"></div>`;
+    card.innerHTML = html;
+    document.getElementById("catCloseBtn").onclick = closeCatDetail;
+    return;
+  }
+
+  html += `<div class="cat-detail-hint">Tocca una voce per modificarla o eliminarla.</div><div id="catDetailList"></div><div style="height:16px"></div>`;
+  card.innerHTML = html;
+  document.getElementById("catCloseBtn").onclick = closeCatDetail;
+
+  const listEl = document.getElementById("catDetailList");
+  list.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "movement";
+    const meta = (item.account ? `${item.user} · ${item.account}` : item.user);
+    row.innerHTML = `
+      <div class="movement-left">
+        ${iconWrap(icon, color)}
+        <div>
+          <div class="movement-cat">${item.note ? item.note : name}</div>
+          <div class="movement-meta">${meta} · ${new Date(item.date).toLocaleDateString("it-IT")}</div>
+        </div>
+      </div>
+      <div class="mono amount-out">${eur(item.amount)}</div>`;
+    row.onclick = () => { closeCatDetail(); openEditModal("spesa", item.id); };
+    listEl.appendChild(row);
+  });
+}
+
+document.getElementById("catOverlay").addEventListener("click", (ev) => {
+  if (ev.target.id === "catOverlay") closeCatDetail();
+});
+
 /* ───────────────── TOAST ───────────────── */
 let toastTimer = null;
 function toast(msg) {
@@ -1363,7 +1435,7 @@ function renderStats() {
   content.innerHTML = toggleHtml + `
     <div class="section-title">Ripartizione per categoria — ${periodLabel}</div>
     <div class="chart-wrap"><canvas id="pieCanvas"></canvas></div>
-    <div class="legend">${byCategory.map((c) => `<div class="legend-item"><span class="legend-dot" style="background:${c.color}"></span>${c.name} ${eur(c.value)}</div>`).join("")}</div>
+    <div class="legend">${byCategory.map((c) => `<div class="legend-item" data-cat="${c.name.replace(/"/g, "&quot;")}"><span class="legend-dot" style="background:${c.color}"></span>${c.name} ${eur(c.value)}<i class="ti ti-chevron-right" style="font-size:12px;color:#C7B9AC"></i></div>`).join("")}</div>
     <div class="section-title">Pietro vs Marianna (quota 50/50) — ${periodLabel}</div>
     <div class="stats-cards">
       <div class="stats-card"><div class="name">Pietro</div><div class="val">${eur(byUser.Pietro)}</div></div>
@@ -1374,13 +1446,26 @@ function renderStats() {
   `;
   wireControls();
 
+  document.querySelectorAll("#statsContent .legend-item").forEach((el) => {
+    el.onclick = () => openCatDetail(el.dataset.cat);
+  });
+
   if (pieChart) pieChart.destroy();
   if (barChart) barChart.destroy();
 
   pieChart = new Chart(document.getElementById("pieCanvas"), {
     type: "doughnut",
     data: { labels: byCategory.map((c) => c.name), datasets: [{ data: byCategory.map((c) => c.value), backgroundColor: byCategory.map((c) => c.color), borderWidth: 0 }] },
-    options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => eur(ctx.parsed) } } }, cutout: "60%" },
+    options: {
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => eur(ctx.parsed) } } },
+      cutout: "60%",
+      onClick: (evt, elements) => {
+        if (elements && elements.length) openCatDetail(byCategory[elements[0].index].name);
+      },
+      onHover: (evt, elements) => {
+        evt.native.target.style.cursor = elements && elements.length ? "pointer" : "default";
+      },
+    },
   });
 
   barChart = new Chart(document.getElementById("barCanvas"), {
@@ -1440,6 +1525,7 @@ function render() {
   if (document.getElementById("page-history").classList.contains("active")) renderHistory();
   if (document.getElementById("page-stats").classList.contains("active")) renderStats();
   if (document.getElementById("page-scadenze").classList.contains("active")) renderDeadlines();
+  if (catDetailName) renderCatDetail();
 }
 
 /* ───────────────── BOOT ───────────────── */
