@@ -582,6 +582,66 @@ document.getElementById("postponeOverlay").addEventListener("click", (ev) => {
   if (ev.target.id === "postponeOverlay") closePostpone();
 });
 
+/* ───────────────── GESTIONE CONTI (dalle card in Home) ───────────────── */
+function closeAccountModal() {
+  document.getElementById("accountOverlay").style.display = "none";
+}
+
+function openAccountModal(acc) {
+  const card = document.getElementById("accountModalCard");
+  card.innerHTML = `
+    <div class="modal-title">${acc}<button class="modal-close" id="accCloseBtn"><i class="ti ti-x"></i></button></div>
+    <div class="field">
+      <div class="field-label">Saldo attuale (€)</div>
+      <input class="input" id="accBalInput" type="text" inputmode="decimal" pattern="[0-9.,-]*" value="${balances[acc] ?? 0}">
+      <div style="font-size:11px;color:#B0A296;margin-top:6px">Correggi qui il saldo se non coincide con quello della banca.</div>
+    </div>
+    <button class="submit-btn bal-save-btn" style="background:#3A332D" id="accSaveBtn">Salva saldo</button>
+    <button class="delete-link-btn" id="accDeleteBtn">Elimina conto</button>`;
+  document.getElementById("accountOverlay").style.display = "flex";
+  document.getElementById("accCloseBtn").onclick = closeAccountModal;
+  document.getElementById("accSaveBtn").onclick = () => {
+    const val = parseAmount(document.getElementById("accBalInput").value) || 0;
+    updateBalance(acc, val);
+    closeAccountModal();
+    toast(`Saldo ${acc} aggiornato`);
+  };
+  document.getElementById("accDeleteBtn").onclick = () => {
+    closeAccountModal();
+    removeAccount(acc);
+  };
+}
+
+function openNewAccountModal() {
+  const card = document.getElementById("accountModalCard");
+  card.innerHTML = `
+    <div class="modal-title">Nuovo conto<button class="modal-close" id="accCloseBtn"><i class="ti ti-x"></i></button></div>
+    <div class="field">
+      <div class="field-label">Nome</div>
+      <input class="input" id="newAccName" placeholder="es. Cassa, PayPal…">
+    </div>
+    <div class="field">
+      <div class="field-label">Saldo iniziale (€)</div>
+      <input class="input" id="newAccBal" type="text" inputmode="decimal" pattern="[0-9.,-]*" value="0">
+    </div>
+    <button class="submit-btn" style="background:#7c9473" id="addAccBtn">Aggiungi conto</button>`;
+  document.getElementById("accountOverlay").style.display = "flex";
+  document.getElementById("accCloseBtn").onclick = closeAccountModal;
+  document.getElementById("addAccBtn").onclick = () => {
+    const name = document.getElementById("newAccName").value.trim();
+    const bal = parseAmount(document.getElementById("newAccBal").value) || 0;
+    if (!name) { toast("Inserisci un nome per il conto"); return; }
+    if (ACCOUNTS.some((a) => a.toLowerCase() === name.toLowerCase())) { toast("Esiste già un conto con questo nome"); return; }
+    closeAccountModal();
+    addAccount(name);
+    if (bal) updateBalance(name, bal);
+  };
+}
+
+document.getElementById("accountOverlay").addEventListener("click", (ev) => {
+  if (ev.target.id === "accountOverlay") closeAccountModal();
+});
+
 /* ───────────────── EDIT MODAL ───────────────── */
 let editState = null; // { kind: 'spesa'|'entrata'|'giroconto', id, data }
 
@@ -849,7 +909,6 @@ document.querySelectorAll("[data-addtab]").forEach((btn) => {
     document.getElementById("add-spesa").style.display = btn.dataset.addtab === "spesa" ? "block" : "none";
     document.getElementById("add-entrata").style.display = btn.dataset.addtab === "entrata" ? "block" : "none";
     document.getElementById("add-giroconto").style.display = btn.dataset.addtab === "giroconto" ? "block" : "none";
-    document.getElementById("add-conto").style.display = btn.dataset.addtab === "conto" ? "block" : "none";
     document.getElementById("add-ricorrente").style.display = btn.dataset.addtab === "ricorrente" ? "block" : "none";
   });
 });
@@ -1012,42 +1071,6 @@ function buildAddForm() {
     });
   }
 
-  const balForm = document.getElementById("add-conto");
-  balForm.innerHTML = "";
-  ACCOUNTS.forEach((acc) => {
-    const wrap = document.createElement("div");
-    wrap.className = "field";
-    wrap.innerHTML = `
-      <div class="field-label">${acc}</div>
-      <div class="balance-save">
-        <input class="input" style="flex:1" id="bal-${acc}" type="text" inputmode="decimal" pattern="[0-9.,-]*" value="${balances[acc] ?? 0}">
-        <button data-acc="${acc}" class="bal-save-btn">Salva</button>
-        <button data-acc="${acc}" class="bal-del-btn" style="background:#fff;color:#B65C6B;border:1px solid #EFE3D8;padding:0 12px;border-radius:10px"><i class="ti ti-x"></i></button>
-      </div>`;
-    balForm.appendChild(wrap);
-    wrap.querySelector(".bal-save-btn").onclick = () => {
-      const val = parseAmount(document.getElementById(`bal-${acc}`).value) || 0;
-      updateBalance(acc, val);
-      toast(`Saldo ${acc} aggiornato`);
-    };
-    wrap.querySelector(".bal-del-btn").onclick = () => removeAccount(acc);
-  });
-
-  const addAccWrap = document.createElement("div");
-  addAccWrap.className = "field";
-  addAccWrap.style.marginTop = "10px";
-  addAccWrap.innerHTML = `
-    <div class="field-label">Nuovo conto</div>
-    <div class="balance-save">
-      <input class="input" style="flex:1" id="newAccName" placeholder="es. Cassa, PayPal…">
-      <button id="addAccBtn" style="background:#7c9473;color:#fff;padding:0 16px;border-radius:10px">Aggiungi</button>
-    </div>`;
-  balForm.appendChild(addAccWrap);
-  addAccWrap.querySelector("#addAccBtn").onclick = () => {
-    const val = document.getElementById("newAccName").value;
-    addAccount(val);
-    document.getElementById("newAccName").value = "";
-  };
 }
 
 document.getElementById("editOverlay").addEventListener("click", (ev) => {
@@ -1488,9 +1511,15 @@ function renderDashboard() {
   ACCOUNTS.forEach((acc) => {
     const el = document.createElement("div");
     el.className = "account-card";
-    el.innerHTML = `<div class="name">${acc}</div><div class="val">${eur(balances[acc])}</div>`;
+    el.innerHTML = `<div class="name">${acc}<span class="edit-hint"><i class="ti ti-pencil"></i></span></div><div class="val">${eur(balances[acc])}</div>`;
+    el.onclick = () => openAccountModal(acc);
     grid.appendChild(el);
   });
+  const addCard = document.createElement("div");
+  addCard.className = "account-card add";
+  addCard.innerHTML = `<i class="ti ti-plus" style="font-size:15px"></i>Nuovo conto`;
+  addCard.onclick = openNewAccountModal;
+  grid.appendChild(addCard);
 
   const recent = [
     ...expenses,

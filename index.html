@@ -62,7 +62,10 @@ button{cursor:pointer;border:none;background:none}
 .total-card{background:#fff;border:1px solid #EFE3D8;border-radius:14px;padding:16px 18px;margin-bottom:18px}
 .total-val{font-family:'Manrope',sans-serif;font-size:26px;font-weight:700;margin-top:4px;color:#3A332D}
 .accounts-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px}
-.account-card{background:#fff;border:1px solid #EFE3D8;border-radius:12px;padding:12px 14px}
+.account-card{background:#fff;border:1px solid #EFE3D8;border-radius:12px;padding:12px 14px;cursor:pointer}
+.account-card:active{background:#F7EFE7}
+.account-card .edit-hint{font-size:11px;color:#C7B9AC;float:right}
+.account-card.add{border-style:dashed;border-color:#D9CBBE;display:flex;align-items:center;justify-content:center;gap:6px;color:#9C8F84;font-size:13px;font-weight:500;background:transparent}
 .account-card .name{font-size:12px;color:#9C8F84}
 .account-card .val{font-family:'Manrope',sans-serif;font-size:16px;font-weight:700;margin-top:2px}
 .movement{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #EFE3D8}
@@ -225,7 +228,6 @@ button{cursor:pointer;border:none;background:none}
       <button data-addtab="spesa" class="active">Spesa</button>
       <button data-addtab="entrata">Entrata</button>
       <button data-addtab="giroconto">Giroconto</button>
-      <button data-addtab="conto">Conti</button>
       <button data-addtab="ricorrente">Ricorrenti</button>
     </div>
 
@@ -313,8 +315,6 @@ button{cursor:pointer;border:none;background:none}
       </div>
       <button class="submit-btn" style="background:#7B93AE" id="trfSubmit">Registra giroconto</button>
     </div>
-
-    <div id="add-conto" style="display:none"></div>
 
     <div id="add-ricorrente" style="display:none">
       <div class="section-title">Spese ricorrenti attive</div>
@@ -423,6 +423,10 @@ button{cursor:pointer;border:none;background:none}
 
   <div class="modal-overlay" id="postponeOverlay" style="display:none">
     <div class="modal-card" id="postponeModalCard"></div>
+  </div>
+
+  <div class="modal-overlay" id="accountOverlay" style="display:none">
+    <div class="modal-card" id="accountModalCard"></div>
   </div>
 </div>
 
