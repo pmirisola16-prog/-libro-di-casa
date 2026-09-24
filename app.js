@@ -391,10 +391,78 @@ function addCategory(name, icon) {
   toast(`Categoria "${clean}" aggiunta`);
 }
 
+/* Rinomina una categoria (e/o cambia icona) aggiornando anche tutte le spese
+   già registrate e le spese ricorrenti che la usano, in un'unica scrittura. */
+async function renameCategory(oldName, newNameRaw, newIconRaw) {
+  const newName = (newNameRaw || "").trim();
+  if (!newName) { toast("Inserisci un nome per la categoria"); return false; }
+  if (EXPENSE_CATEGORIES.some((c) => c.name !== oldName && c.name.toLowerCase() === newName.toLowerCase())) {
+    toast("Esiste già una categoria con questo nome"); return false;
+  }
+  const old = EXPENSE_CATEGORIES.find((c) => c.name === oldName);
+  if (!old) return false;
+  const newIcon = (newIconRaw || "").trim() || old.icon;
+
+  EXPENSE_CATEGORIES = EXPENSE_CATEGORIES.map((c) => (c.name === oldName ? { ...c, name: newName, icon: newIcon } : c));
+  const touched = expenses.filter((e) => e.category === oldName).length;
+  expenses = expenses.map((e) => (e.category === oldName ? { ...e, category: newName } : e));
+  recurrings = recurrings.map((r) => (r.category === oldName ? { ...r, category: newName } : r));
+  if (selCategory === oldName) selCategory = newName;
+  if (selRecCategory === oldName) selRecCategory = newName;
+  render();
+
+  if (!firebaseReady) { showError("Firebase non configurato: le modifiche non verranno salvate."); return true; }
+  setSyncing(true);
+  try {
+    const batch = db.batch();
+    batch.set(db.collection("ledger").doc("categories"), { list: EXPENSE_CATEGORIES });
+    batch.set(db.collection("ledger").doc("expenses"), { items: expenses });
+    batch.set(db.collection("ledger").doc("recurring"), { items: recurrings });
+    await batch.commit();
+    clearError();
+    toast(touched ? `Categoria aggiornata su ${touched} ${touched === 1 ? "spesa" : "spese"}` : "Categoria aggiornata");
+  } catch (e) {
+    showError("Modifica categoria non riuscita: " + e.message);
+  } finally {
+    setSyncing(false);
+  }
+  return true;
+}
+
+function closeCategoryEdit() {
+  document.getElementById("accountOverlay").style.display = "none";
+}
+
+function openCategoryEdit(name) {
+  const c = EXPENSE_CATEGORIES.find((x) => x.name === name);
+  if (!c) return;
+  const used = expenses.filter((e) => e.category === name).length;
+  const isVector = c.icon && c.icon.startsWith("ti:");
+  const card = document.getElementById("accountModalCard");
+  card.innerHTML = `
+    <div class="modal-title"><span style="display:flex;align-items:center;gap:9px">${iconWrap(c.icon, c.color)}Modifica categoria</span><button class="modal-close" id="catEditCloseBtn"><i class="ti ti-x"></i></button></div>
+    <div class="field">
+      <div class="field-label">Nome</div>
+      <input class="input" id="catEditName" value="${c.name.replace(/"/g, "&quot;")}">
+    </div>
+    <div class="field">
+      <div class="field-label">Icona (emoji — lascia vuoto per tenere quella attuale)</div>
+      <input class="input" id="catEditIcon" style="width:80px;text-align:center" maxlength="4" value="${isVector ? "" : (c.icon || "")}" placeholder="${isVector ? "—" : "🏷️"}">
+    </div>
+    <div style="font-size:12px;color:#9C8F84;margin-bottom:14px">${used ? `Il nuovo nome verrà applicato anche alle <strong>${used}</strong> ${used === 1 ? "spesa già registrata" : "spese già registrate"} con questa categoria.` : "Nessuna spesa registrata con questa categoria."}</div>
+    <button class="submit-btn" style="background:#3A332D" id="catEditSaveBtn">Salva modifiche</button>`;
+  document.getElementById("accountOverlay").style.display = "flex";
+  document.getElementById("catEditCloseBtn").onclick = closeCategoryEdit;
+  document.getElementById("catEditSaveBtn").onclick = async () => {
+    const ok = await renameCategory(name, document.getElementById("catEditName").value, document.getElementById("catEditIcon").value);
+    if (ok) closeCategoryEdit();
+  };
+}
+
 function removeCategory(name) {
   const used = expenses.some((e) => e.category === name);
   const msg = used
-    ? `"${name}" è usata in alcune spese già registrate. Eliminarla comunque? Lo storico resterà invariato, ma la categoria sparirà dalle scelte future.`
+    ? `"${name}" è usata in alcune spese già registrate. Se la elimini quelle spese restano nello storico ma non compariranno più nei grafici. Se vuoi solo cambiarle nome, usa la matita. Eliminarla comunque?`
     : `Eliminare la categoria "${name}"?`;
   if (!confirm(msg)) return;
   EXPENSE_CATEGORIES = EXPENSE_CATEGORIES.filter((c) => c.name !== name);
@@ -946,8 +1014,9 @@ function buildAddForm() {
   EXPENSE_CATEGORIES.forEach((c) => {
     const row = document.createElement("div");
     row.style.cssText = "display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #EFE3D8;font-size:13px";
-    row.innerHTML = `<span>${catIconHtml(c.icon)} ${c.name}</span><button style="color:#B65C6B;font-size:15px;padding:0 6px"><i class="ti ti-x"></i></button>`;
-    row.querySelector("button").onclick = () => removeCategory(c.name);
+    row.innerHTML = `<span>${catIconHtml(c.icon)} ${c.name}</span><span style="display:flex;gap:4px"><button class="cat-edit-btn" style="color:#9C8F84;font-size:15px;padding:0 6px"><i class="ti ti-pencil"></i></button><button class="cat-del-btn" style="color:#B65C6B;font-size:15px;padding:0 6px"><i class="ti ti-x"></i></button></span>`;
+    row.querySelector(".cat-edit-btn").onclick = () => openCategoryEdit(c.name);
+    row.querySelector(".cat-del-btn").onclick = () => removeCategory(c.name);
     catDelList.appendChild(row);
   });
 
